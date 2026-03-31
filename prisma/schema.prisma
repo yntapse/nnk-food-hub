@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String
+  address   String   @default("")
+  orders    Order[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rider {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  password      String
+  name          String
+  phone         String
+  isOnline      Boolean  @default(false)
+  isAvailable   Boolean  @default(false)
+  totalEarnings Float    @default(0)
+  rating        Float    @default(5)
+  orders        Order[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Hotel {
+  id            Int        @id @default(autoincrement())
+  email         String     @unique
+  password      String
+  name          String
+  phone         String
+  location      String
+  category      String     @default("Fast Food")
+  rating        Float      @default(4.5)
+  totalOrders   Int        @default(0)
+  totalEarnings Float      @default(0)
+  isOpen        Boolean    @default(true)
+  upiId         String     @default("")
+  menuItems     MenuItem[]
+  orders        Order[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model MenuItem {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String   @default("")
+  price       Float
+  category    String   @default("Main Course")
+  image       String   @default("")
+  isAvailable Boolean  @default(true)
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  hotelId     Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Admin {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String   @default("Admin")
+  upiId     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id              Int      @id @default(autoincrement())
+  user            User     @relation(fields: [userId], references: [id])
+  userId          Int
+  hotel           Hotel    @relation(fields: [hotelId], references: [id])
+  hotelId         Int
+  rider           Rider?   @relation(fields: [riderId], references: [id])
+  riderId         Int?
+  items           Json
+  totalPrice      Float
+  itemsPrice      Float    @default(0)
+  deliveryFee     Float    @default(0)
+  deliveryAddress String
+  paymentMethod   String   @default("COD")
+  customerPhone   String   @default("")
+  status          String   @default("Placed")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

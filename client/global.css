@@ -1,0 +1,215 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 12%;
+
+    /* Primary: Swiggy Orange #FC8019 */
+    --primary: 25 97% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Light Gray */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 12%;
+
+    --muted: 220 9% 92%;
+    --muted-foreground: 0 0% 45%;
+
+    /* Accent: Green */
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 13% 91%;
+    --input: 0 0% 95%;
+    --ring: 25 97% 54%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 12%;
+    --sidebar-primary: 25 97% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 90%;
+    --sidebar-accent-foreground: 0 0% 12%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 25 97% 54%;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 25 97% 54%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 16%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 20%;
+    --muted-foreground: 0 0% 65%;
+
+    --accent: 142 71% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 0 0% 18%;
+    --input: 0 0% 14%;
+    --ring: 25 97% 54%;
+
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 25 97% 54%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 16%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 16%;
+    --sidebar-ring: 25 97% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: "Inter", "Plus Jakarta Sans", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  pre, code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+    font-family: "Plus Jakarta Sans", sans-serif;
+  }
+
+  h1 { @apply text-3xl md:text-4xl; }
+  h2 { @apply text-2xl md:text-3xl; }
+  h3 { @apply text-xl md:text-2xl; }
+
+  /* Smooth scrolling */
+  html { scroll-behavior: smooth; }
+
+  /* Hide scrollbar on filter strips */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
+
+@layer components {
+  /* ---- Buttons ---- */
+  .btn-primary {
+    @apply px-6 py-3 bg-primary text-primary-foreground rounded-xl font-semibold
+      hover:brightness-110 active:scale-[0.97] transition-all duration-200
+      disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2
+      shadow-md shadow-primary/20;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-secondary text-secondary-foreground rounded-xl font-semibold
+      border border-border hover:bg-gray-100 active:scale-[0.97] transition-all duration-200;
+  }
+
+  .btn-outline {
+    @apply px-6 py-3 border-2 border-primary text-primary rounded-xl font-semibold
+      hover:bg-orange-50 active:scale-[0.97] transition-all duration-200;
+  }
+
+  .btn-ghost {
+    @apply px-4 py-2 rounded-xl font-medium text-muted-foreground
+      hover:bg-secondary hover:text-foreground active:scale-[0.97] transition-all duration-200;
+  }
+
+  /* ---- Cards ---- */
+  .card-base {
+    @apply bg-card rounded-2xl p-5 shadow-sm border border-border/60;
+  }
+
+  .restaurant-card {
+    @apply bg-card rounded-2xl shadow-sm border border-border/40 overflow-hidden cursor-pointer
+      transition-all duration-300 hover:shadow-xl hover:-translate-y-1;
+  }
+
+  /* ---- Badges ---- */
+  .badge-primary {
+    @apply inline-flex items-center px-3 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-full;
+  }
+
+  .badge-success {
+    @apply inline-flex items-center px-2.5 py-0.5 bg-emerald-100 text-emerald-700 text-xs font-bold rounded-full;
+  }
+
+  .badge-muted {
+    @apply inline-flex items-center px-2.5 py-0.5 bg-muted text-muted-foreground text-xs font-semibold rounded-full;
+  }
+
+  .badge-closed {
+    @apply inline-flex items-center px-2.5 py-0.5 bg-red-100 text-red-600 text-xs font-bold rounded-full;
+  }
+
+  /* ---- Form inputs ---- */
+  .input-base {
+    @apply w-full px-4 py-3 bg-white border border-border rounded-xl text-foreground placeholder-muted-foreground
+      focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all duration-200;
+  }
+
+  /* ---- Skeleton loader ---- */
+  .skeleton {
+    @apply bg-gray-200 animate-pulse rounded-xl;
+  }
+
+  /* ---- Chip/filter pill ---- */
+  .chip {
+    @apply px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-200
+      border border-border bg-white text-foreground hover:shadow-md cursor-pointer select-none;
+  }
+  .chip-active {
+    @apply bg-primary text-white border-primary shadow-md shadow-primary/20;
+  }
+}
+
+/* Bounce animation for add-to-cart */
+@keyframes cart-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+.animate-cart-bounce { animation: cart-bounce 0.3s ease-in-out; }
+
+/* Slide-up for modals / toasts */
+@keyframes slide-up {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-up { animation: slide-up 0.35s ease-out; }

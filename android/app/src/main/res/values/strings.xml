@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Niphad Food Hub</string>
+    <string name="title_activity_main">Niphad Food Hub</string>
+    <string name="package_name">com.niphadfoodhub.app</string>
+    <string name="custom_url_scheme">com.niphadfoodhub.app</string>
+</resources>

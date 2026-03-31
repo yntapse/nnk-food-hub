@@ -1,0 +1,81 @@
+{
+  "admin": {
+    "email": "admin@foodhub.local",
+    "password": "Admin@123"
+  },
+  "users": [
+    {
+      "name": "Ravi Kumar",
+      "email": "ravi@example.com",
+      "password": "User@123",
+      "phone": "9876543210",
+      "role": "user",
+      "address": "Main Bazaar Road, Small Town"
+    },
+    {
+      "name": "Priya Sharma",
+      "email": "priya@example.com",
+      "password": "User@123",
+      "phone": "9876500001",
+      "role": "user",
+      "address": "Bus Stand Area, Small Town"
+    }
+  ],
+  "riders": [
+    {
+      "name": "Aman Rider",
+      "email": "aman.rider@example.com",
+      "password": "Rider@123",
+      "phone": "9000000001",
+      "role": "rider"
+    },
+    {
+      "name": "Vijay Rider",
+      "email": "vijay.rider@example.com",
+      "password": "Rider@123",
+      "phone": "9000000002",
+      "role": "rider"
+    }
+  ],
+  "hotels": [
+    {
+      "name": "Town Biryani House",
+      "email": "biryani@example.com",
+      "password": "Hotel@123",
+      "phone": "8000000001",
+      "role": "hotel",
+      "location": "Clock Tower Street",
+      "category": "Biryani",
+      "menu": [
+        { "name": "Chicken Biryani", "description": "Spicy dum biryani", "price": 199, "category": "Main Course" },
+        { "name": "Veg Biryani", "description": "Aromatic veg biryani", "price": 149, "category": "Main Course" },
+        { "name": "Raita", "description": "Curd with herbs", "price": 39, "category": "Appetizers" }
+      ]
+    },
+    {
+      "name": "Pizza Point",
+      "email": "pizza@example.com",
+      "password": "Hotel@123",
+      "phone": "8000000002",
+      "role": "hotel",
+      "location": "Market Circle",
+      "category": "Pizza",
+      "menu": [
+        { "name": "Margherita Pizza", "description": "Classic cheese pizza", "price": 249, "category": "Main Course" },
+        { "name": "Farmhouse Pizza", "description": "Loaded veggie pizza", "price": 299, "category": "Main Course" },
+        { "name": "Cold Coffee", "description": "Chilled coffee", "price": 89, "category": "Beverages" }
+      ]
+    }
+  ],
+  "sampleOrder": {
+    "statusFlow": [
+      "Placed",
+      "Accepted",
+      "Preparing",
+      "Ready",
+      "Out for Delivery",
+      "Delivered"
+    ],
+    "paymentMethod": "COD"
+  }
+}
