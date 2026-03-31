@@ -1,7 +1,6 @@
 import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { createServer } from "./server";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -30,11 +29,14 @@ function expressPlugin(): Plugin {
     name: "express-plugin",
     apply: "serve", // Only apply during development (serve mode)
     configureServer(server) {
-      // Pass Vite's httpServer so socket.io binds to the same port (8080)
-      const { app } = createServer(server.httpServer ?? undefined);
+      // Dynamically import to avoid PrismaClient being bundled into vite config
+      import("./server").then(({ createServer }) => {
+        // Pass Vite's httpServer so socket.io binds to the same port (8080)
+        const { app } = createServer(server.httpServer ?? undefined);
 
-      // Add Express app as middleware to Vite dev server
-      server.middlewares.use(app);
+        // Add Express app as middleware to Vite dev server
+        server.middlewares.use(app);
+      });
     },
   };
 }
