@@ -213,3 +213,56 @@
   100% { transform: translateY(0); opacity: 1; }
 }
 .animate-slide-up { animation: slide-up 0.35s ease-out; }
+
+/* Fade-in */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+
+/* Bounce-in for badge */
+@keyframes bounce-in {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+.animate-bounce-in { animation: bounce-in 0.35s ease-out forwards; }
+
+/* Scale-in for quantity controls */
+@keyframes scale-in {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.animate-scale-in { animation: scale-in 0.2s ease-out; }
+
+/* Float for decorative elements */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+.animate-float { animation: float 3s ease-in-out infinite; }
+
+/* Shimmer for skeleton */
+@keyframes shimmer {
+  to { background-position-x: -200%; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(100deg, #f3f3f3 30%, #e8e8e8 50%, #f3f3f3 70%);
+  background-size: 200% 100%;
+  background-position-x: 200%;
+  animation: shimmer 1.2s infinite linear;
+}
+
+/* Gradient text utility */
+.gradient-text {
+  @apply bg-gradient-to-r from-orange-500 to-pink-500 bg-clip-text text-transparent;
+}
+
+/* Glass morphism */
+.glass {
+  @apply bg-white/20 backdrop-blur-sm border border-white/30;
+}
+
+/* Bottom-nav aware padding */
+.pb-nav { padding-bottom: calc(64px + env(safe-area-inset-bottom, 4px)); }

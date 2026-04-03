@@ -50,7 +50,15 @@ export async function seedDB(): Promise<void> {
   const adminExists = await prisma.admin.findUnique({ where: { email: seedData.admin.email } });
   if (!adminExists) {
     const hashed = await bcrypt.hash(seedData.admin.password, SALT_ROUNDS);
-    await prisma.admin.create({ data: { ...seedData.admin, password: hashed } });
+    await prisma.admin.create({
+      data: {
+        ...seedData.admin,
+        password: hashed,
+        deliveryFeeAmount: 30,
+        freeDeliveryThreshold: 200,
+        firstOrderFree: true,
+      },
+    });
     console.log("  ✓ Admin seeded");
   }
 

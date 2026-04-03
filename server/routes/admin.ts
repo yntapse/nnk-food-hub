@@ -1,6 +1,16 @@
 import { RequestHandler } from "express";
 import { prisma } from "../db";
 import { hashPassword } from "../utils/auth";
+import {
+  getDeliveryFeeSettings,
+  normalizeDeliveryFeeSettings,
+} from "../utils/delivery-fee";
+
+const normalizeRating = (rating: unknown) => {
+  const parsedRating = Number(rating);
+  if (!Number.isFinite(parsedRating)) return undefined;
+  return Math.min(5, Math.max(1, parsedRating));
+};
 
 const userSelect = {
   id: true, name: true, email: true, phone: true,
@@ -65,12 +75,21 @@ export const createRider: RequestHandler = async (req, res) => {
 
 export const createHotel: RequestHandler = async (req, res) => {
   try {
-    const { name, email, phone, password, location, category } = req.body;
+    const { name, email, phone, password, location, category, rating } = req.body;
     const existing = await prisma.hotel.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: "Hotel already exists" }); return; }
     const hashedPassword = await hashPassword(password);
+    const normalizedRating = normalizeRating(rating);
     const hotel = await prisma.hotel.create({
-      data: { name, email, phone, password: hashedPassword, location, category },
+      data: {
+        name,
+        email,
+        phone,
+        password: hashedPassword,
+        location,
+        category,
+        ...(normalizedRating !== undefined ? { rating: normalizedRating } : {}),
+      },
       select: hotelSelect,
     });
     res.status(201).json({ message: "Hotel created", hotel });
@@ -103,6 +122,38 @@ export const updateAdminUpi: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Error updating admin UPI:", error);
     res.status(500).json({ error: "Failed to update admin UPI" });
+  }
+};
+
+export const getDeliverySettings: RequestHandler = async (_req, res) => {
+  try {
+    const settings = await getDeliveryFeeSettings();
+    res.json(settings);
+  } catch (error) {
+    console.error("Error fetching delivery settings:", error);
+    res.status(500).json({ error: "Failed to fetch delivery settings" });
+  }
+};
+
+export const updateDeliverySettings: RequestHandler = async (req, res) => {
+  try {
+    if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const settings = normalizeDeliveryFeeSettings(req.body ?? {});
+    const admin = await prisma.admin.update({
+      where: { id: parseInt(req.user.id) },
+      data: settings,
+      select: {
+        deliveryFeeAmount: true,
+        freeDeliveryThreshold: true,
+        firstOrderFree: true,
+      },
+    });
+
+    res.json({ message: "Delivery settings updated", settings: admin });
+  } catch (error) {
+    console.error("Error updating delivery settings:", error);
+    res.status(500).json({ error: "Failed to update delivery settings" });
   }
 };
 
@@ -182,14 +233,16 @@ export const toggleHotel: RequestHandler = async (req, res) => {
 export const updateHotel: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.hotelId);
-    const { name, phone, password, location, category } = req.body;
-    const data: Record<string, string> = {};
+    const { name, phone, password, location, category, rating } = req.body;
+    const data: Record<string, string | number> = {};
     if (name) data.name = name;
     if (phone) data.phone = phone;
     if (password) data.password = await hashPassword(password);
     if (location) data.location = location;
     if (category) data.category = category;
-    const updated = await prisma.hotel.update({ where: { id }, data, select: { id: true, name: true, email: true, phone: true, location: true, category: true, isOpen: true } });
+    const normalizedRating = normalizeRating(rating);
+    if (normalizedRating !== undefined) data.rating = normalizedRating;
+    const updated = await prisma.hotel.update({ where: { id }, data, select: { id: true, name: true, email: true, phone: true, location: true, category: true, rating: true, isOpen: true } });
     res.json({ message: "Hotel updated", hotel: updated });
   } catch (error) {
     console.error("Error updating hotel:", error);

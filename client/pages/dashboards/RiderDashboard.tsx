@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import Header from "@/components/Header";
+import GoogleMapEmbed from "@/components/GoogleMapEmbed";
 import { useAuthStore } from "@/stores/authStore";
 import { apiUrl } from "@/lib/api";
-import { Truck, Wallet, MapPin, Bell } from "lucide-react";
+import { Truck, Wallet, MapPin, Bell, Navigation, Route, PhoneCall, KeyRound, X } from "lucide-react";
 import { initializeSocket, disconnectSocket } from "@/services/socket";
 
 interface Order {
@@ -24,6 +25,44 @@ interface RiderProfile {
   currentOrders: string[];
 }
 
+function createMapsSearchUrl(query: string) {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function createDirectionsUrl(origin: string, destination: string) {
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+}
+
+/** Plays a repeating alert ringtone using the Web Audio API. Returns a stop function. */
+function startRingtone(): () => void {
+  const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  let stopped = false;
+  let timeoutId: ReturnType<typeof setTimeout>;
+
+  const playBeep = () => {
+    if (stopped) return;
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+    gainNode.gain.setValueAtTime(0.6, ctx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+    oscillator.start(ctx.currentTime);
+    oscillator.stop(ctx.currentTime + 0.8);
+    if (!stopped) timeoutId = setTimeout(playBeep, 1200);
+  };
+
+  playBeep();
+
+  return () => {
+    stopped = true;
+    clearTimeout(timeoutId);
+    ctx.close();
+  };
+}
+
 export default function RiderDashboard() {
   const { user, token } = useAuthStore();
   const [profile, setProfile] = useState<RiderProfile | null>(null);
@@ -31,7 +70,20 @@ export default function RiderDashboard() {
   const [earnings, setEarnings] = useState({ totalEarnings: 0, completedDeliveries: 0, activeDeliveries: 0 });
   const [loading, setLoading] = useState(true);
   const [newAssignment, setNewAssignment] = useState(false);
+  // OTP state: orderId → value entered by rider
+  const [otpInputs, setOtpInputs] = useState<Record<number, string>>({});
+  const [otpError, setOtpError] = useState<Record<number, string>>({});
+  const [completingId, setCompletingId] = useState<number | null>(null);
   const socketRef = useRef(false);
+  const stopRingtoneRef = useRef<(() => void) | null>(null);
+
+  const stopRingtone = useCallback(() => {
+    if (stopRingtoneRef.current) {
+      stopRingtoneRef.current();
+      stopRingtoneRef.current = null;
+    }
+    setNewAssignment(false);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -42,12 +94,17 @@ export default function RiderDashboard() {
       socket.on("orderAssigned", () => {
         setNewAssignment(true);
         fetchData();
+        // Start ringtone — will loop until rider dismisses / accepts
+        stopRingtoneRef.current?.(); // stop any previous
+        stopRingtoneRef.current = startRingtone();
       });
     }
 
     return () => {
       disconnectSocket();
       socketRef.current = false;
+      stopRingtoneRef.current?.();
+      stopRingtoneRef.current = null;
     };
   }, [token]);
 
@@ -96,6 +153,7 @@ export default function RiderDashboard() {
       });
 
       if (response.ok) {
+        stopRingtone(); // stop ringtone when order accepted
         fetchData();
       }
     } catch (error) {
@@ -104,17 +162,32 @@ export default function RiderDashboard() {
   };
 
   const completeDelivery = async (orderId: number) => {
+    const otp = otpInputs[orderId]?.trim();
+    if (!otp) {
+      setOtpError((prev) => ({ ...prev, [orderId]: "Please enter the OTP from the customer" }));
+      return;
+    }
+    setCompletingId(orderId);
+    setOtpError((prev) => ({ ...prev, [orderId]: "" }));
     try {
       const response = await fetch(apiUrl(`/api/rider/complete/${orderId}`), {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ otp }),
       });
 
       if (response.ok) {
+        setOtpInputs((prev) => { const n = { ...prev }; delete n[orderId]; return n; });
         fetchData();
+      } else {
+        const data = await response.json();
+        setOtpError((prev) => ({ ...prev, [orderId]: data.error || "OTP verification failed" }));
       }
     } catch (error) {
       console.error("Error completing delivery:", error);
+      setOtpError((prev) => ({ ...prev, [orderId]: "Network error. Try again." }));
+    } finally {
+      setCompletingId(null);
     }
   };
 
@@ -146,10 +219,12 @@ export default function RiderDashboard() {
             </div>
             <div className="flex items-center gap-3">
               {newAssignment && (
-                <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-2 rounded-lg border border-primary/20 text-sm">
+                <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-2 rounded-lg border border-primary/20 text-sm animate-pulse">
                   <Bell size={16} className="animate-bounce" />
-                  <span className="font-semibold">New delivery!</span>
-                  <button onClick={() => setNewAssignment(false)} className="text-xs underline">OK</button>
+                  <span className="font-semibold">New delivery assigned!</span>
+                  <button onClick={stopRingtone} className="ml-1 p-0.5 rounded hover:bg-primary/20" title="Dismiss">
+                    <X size={14} />
+                  </button>
                 </div>
               )}
               <button
@@ -219,6 +294,47 @@ export default function RiderDashboard() {
                       <p className="text-sm text-muted-foreground">{order.user.address}</p>
                     </div>
                   </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+                    <GoogleMapEmbed
+                      query={`${order.hotel.name}, ${order.hotel.location}`}
+                      title="Hotel location"
+                      heightClassName="h-44"
+                    />
+                    <GoogleMapEmbed
+                      query={order.user.address}
+                      title="Customer location"
+                      heightClassName="h-44"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <a
+                      href={createMapsSearchUrl(`${order.hotel.name}, ${order.hotel.location}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-border text-sm font-semibold hover:border-primary/40"
+                    >
+                      <Navigation size={14} /> Hotel
+                    </a>
+                    <a
+                      href={createMapsSearchUrl(order.user.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-border text-sm font-semibold hover:border-primary/40"
+                    >
+                      <Navigation size={14} /> Customer
+                    </a>
+                    <a
+                      href={createDirectionsUrl(`${order.hotel.name}, ${order.hotel.location}`, order.user.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:brightness-110"
+                    >
+                      <Route size={14} /> Hotel to Customer
+                    </a>
+                  </div>
+
                   <button
                     onClick={() => acceptDelivery(order.id)}
                     className="btn-primary w-full"
@@ -251,7 +367,9 @@ export default function RiderDashboard() {
                     <div>
                       <p className="text-sm text-muted-foreground">Deliver to</p>
                       <p className="font-semibold">{order.user.name}</p>
-                      <p className="text-sm">Phone: {order.user.phone}</p>
+                      <a href={`tel:${order.user.phone}`} className="text-sm inline-flex items-center gap-1 hover:text-primary">
+                        <PhoneCall size={13} /> {order.user.phone}
+                      </a>
                     </div>
                   </div>
 
@@ -260,16 +378,82 @@ export default function RiderDashboard() {
                     <p className="text-sm font-semibold">{order.user.address}</p>
                   </div>
 
-                  <div className="flex gap-2 justify-between items-center">
-                    <p className="text-sm font-semibold">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+                    <GoogleMapEmbed
+                      query={`${order.hotel.name}, ${order.hotel.location}`}
+                      title="Pickup location"
+                      heightClassName="h-44"
+                    />
+                    <GoogleMapEmbed
+                      query={order.user.address}
+                      title="Drop location"
+                      heightClassName="h-44"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <a
+                      href={createMapsSearchUrl(`${order.hotel.name}, ${order.hotel.location}`)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary border border-border text-sm font-semibold hover:border-primary/40"
+                    >
+                      <Navigation size={14} /> Navigate to Hotel
+                    </a>
+                    <a
+                      href={createMapsSearchUrl(order.user.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-secondary border border-border text-sm font-semibold hover:border-primary/40"
+                    >
+                      <Navigation size={14} /> Navigate to Customer
+                    </a>
+                    <a
+                      href={createDirectionsUrl(`${order.hotel.name}, ${order.hotel.location}`, order.user.address)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:brightness-110"
+                    >
+                      <Route size={14} /> Get Directions
+                    </a>
+                  </div>
+
+                  <div className="flex gap-2 justify-between items-start flex-wrap">
+                    <p className="text-sm font-semibold pt-1">
                       Status: <span className="text-accent">{order.status}</span>
                     </p>
-                    <button
-                      onClick={() => completeDelivery(order.id)}
-                      className="btn-primary py-2 px-4"
-                    >
-                      Mark Delivered
-                    </button>
+
+                    {/* OTP verification block */}
+                    <div className="flex flex-col gap-1 min-w-[240px]">
+                      <label className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                        <KeyRound size={12} /> Ask customer for OTP to confirm delivery
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={4}
+                          placeholder="4-digit OTP"
+                          value={otpInputs[order.id] ?? ""}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, "").slice(0, 4);
+                            setOtpInputs((prev) => ({ ...prev, [order.id]: val }));
+                            if (otpError[order.id]) setOtpError((prev) => ({ ...prev, [order.id]: "" }));
+                          }}
+                          className="w-28 px-3 py-2 border border-border rounded-lg text-center text-lg font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <button
+                          onClick={() => completeDelivery(order.id)}
+                          disabled={completingId === order.id}
+                          className="btn-primary py-2 px-4 disabled:opacity-60"
+                        >
+                          {completingId === order.id ? "Verifying..." : "Deliver"}
+                        </button>
+                      </div>
+                      {otpError[order.id] && (
+                        <p className="text-xs text-destructive font-medium">{otpError[order.id]}</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

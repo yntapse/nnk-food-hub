@@ -14,6 +14,12 @@ interface Analytics {
   onlineRiders: number;
 }
 
+interface DeliveryFeeSettings {
+  deliveryFeeAmount: number;
+  freeDeliveryThreshold: number;
+  firstOrderFree: boolean;
+}
+
 interface Rider {
   id: number;
   name: string;
@@ -30,6 +36,7 @@ interface Hotel {
   phone: string;
   location: string;
   category: string;
+  rating: number;
   isOpen: boolean;
 }
 
@@ -57,14 +64,21 @@ export default function AdminDashboard() {
   const [adminUpiId, setAdminUpiId] = useState("");
   const [adminUpiSaving, setAdminUpiSaving] = useState(false);
   const [adminUpiSaved, setAdminUpiSaved] = useState(false);
+  const [deliverySettings, setDeliverySettings] = useState<DeliveryFeeSettings>({
+    deliveryFeeAmount: 30,
+    freeDeliveryThreshold: 200,
+    firstOrderFree: true,
+  });
+  const [deliverySaving, setDeliverySaving] = useState(false);
+  const [deliverySaved, setDeliverySaved] = useState(false);
   const [hotelForm, setHotelForm] = useState({
-    name: "", email: "", phone: "", password: "", location: "", category: "Fast Food",
+    name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5",
   });
   const [availableRiders, setAvailableRiders] = useState<Rider[]>([]);
   const [editingRider, setEditingRider] = useState<Rider | null>(null);
   const [editRiderForm, setEditRiderForm] = useState({ name: "", phone: "", password: "" });
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
-  const [editHotelForm, setEditHotelForm] = useState({ name: "", phone: "", location: "", category: "", password: "" });
+  const [editHotelForm, setEditHotelForm] = useState({ name: "", phone: "", location: "", category: "", password: "", rating: "4.5" });
 
   useEffect(() => {
     fetchData();
@@ -72,12 +86,13 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     try {
-      const [analyticsRes, ridersRes, hotelsRes, ordersRes, adminUpiRes] = await Promise.all([
+      const [analyticsRes, ridersRes, hotelsRes, ordersRes, adminUpiRes, deliverySettingsRes] = await Promise.all([
         fetch(apiUrl("/api/admin/analytics"), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl("/api/admin/riders"), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl("/api/admin/hotels"), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl("/api/admin/orders"), { headers: { Authorization: `Bearer ${token}` } }),
         fetch(apiUrl("/api/admin/upi"), { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(apiUrl("/api/admin/delivery-settings"), { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
       if (analyticsRes.ok) setAnalytics(await analyticsRes.json());
@@ -89,6 +104,7 @@ export default function AdminDashboard() {
       if (hotelsRes.ok) setHotels(await hotelsRes.json());
       if (ordersRes.ok) setOrders(await ordersRes.json());
       if (adminUpiRes.ok) { const d = await adminUpiRes.json(); setAdminUpiId(d.upiId || ""); }
+      if (deliverySettingsRes.ok) setDeliverySettings(await deliverySettingsRes.json());
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -109,6 +125,27 @@ export default function AdminDashboard() {
       console.error("Error saving admin UPI:", e);
     } finally {
       setAdminUpiSaving(false);
+    }
+  };
+
+  const handleSaveDeliverySettings = async () => {
+    setDeliverySaving(true);
+    try {
+      const res = await fetch(apiUrl("/api/admin/delivery-settings"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(deliverySettings),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDeliverySettings(data.settings);
+        setDeliverySaved(true);
+        setTimeout(() => setDeliverySaved(false), 3000);
+      }
+    } catch (e) {
+      console.error("Error saving delivery settings:", e);
+    } finally {
+      setDeliverySaving(false);
     }
   };
 
@@ -135,10 +172,10 @@ export default function AdminDashboard() {
       const response = await fetch(apiUrl("/api/admin/hotels"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(hotelForm),
+        body: JSON.stringify({ ...hotelForm, rating: parseFloat(hotelForm.rating) }),
       });
       if (response.ok) {
-        setHotelForm({ name: "", email: "", phone: "", password: "", location: "", category: "Fast Food" });
+        setHotelForm({ name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5" });
         fetchData();
       }
     } catch (error) {
@@ -213,7 +250,7 @@ export default function AdminDashboard() {
     await fetch(apiUrl(`/api/admin/hotels/${editingHotel.id}`), {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(editHotelForm),
+      body: JSON.stringify({ ...editHotelForm, rating: parseFloat(editHotelForm.rating) }),
     });
     setEditingHotel(null);
     fetchData();
@@ -343,6 +380,56 @@ export default function AdminDashboard() {
                 </button>
               </div>
               {adminUpiSaved && <p className="text-sm text-green-600 mt-2">Admin UPI ID saved!</p>}
+            </div>
+
+            <div className="card-base">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Bike size={20} className="text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold">Delivery Fee Settings</h3>
+                  <p className="text-sm text-muted-foreground">Customers and orders use only these admin-managed rules</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={deliverySettings.deliveryFeeAmount}
+                  onChange={(e) => setDeliverySettings((current) => ({ ...current, deliveryFeeAmount: Number(e.target.value) }))}
+                  placeholder="Base delivery fee"
+                  className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={deliverySettings.freeDeliveryThreshold}
+                  onChange={(e) => setDeliverySettings((current) => ({ ...current, freeDeliveryThreshold: Number(e.target.value) }))}
+                  placeholder="Free delivery threshold"
+                  className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <label className="flex items-center gap-3 px-4 py-2 border border-border rounded-lg text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={deliverySettings.firstOrderFree}
+                    onChange={(e) => setDeliverySettings((current) => ({ ...current, firstOrderFree: e.target.checked }))}
+                  />
+                  First order free
+                </label>
+              </div>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  onClick={handleSaveDeliverySettings}
+                  disabled={deliverySaving}
+                  className="btn-primary px-6 py-2 flex items-center gap-2 disabled:opacity-50"
+                >
+                  {deliverySaved ? <><Check size={16} /> Saved</> : deliverySaving ? "Saving..." : "Save Delivery Rules"}
+                </button>
+                {deliverySaved && <p className="text-sm text-green-600">Delivery settings saved!</p>}
+              </div>
             </div>
           </div>
         )}
@@ -569,6 +656,17 @@ export default function AdminDashboard() {
                     <option value="Chinese">Chinese</option>
                     <option value="Desserts">Desserts</option>
                   </select>
+                  <input
+                    type="number"
+                    min="1"
+                    max="5"
+                    step="0.1"
+                    value={hotelForm.rating}
+                    onChange={(e) => setHotelForm({ ...hotelForm, rating: e.target.value })}
+                    placeholder="Rating"
+                    required
+                    className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
                 </div>
                 <button type="submit" className="btn-primary">
                   Create Hotel
@@ -586,6 +684,7 @@ export default function AdminDashboard() {
                       <th className="text-left py-2 font-semibold">Email</th>
                       <th className="text-left py-2 font-semibold">Location</th>
                       <th className="text-left py-2 font-semibold">Category</th>
+                      <th className="text-left py-2 font-semibold">Rating</th>
                       <th className="text-left py-2 font-semibold">Status</th>
                       <th className="text-left py-2 font-semibold">Action</th>
                     </tr>
@@ -597,6 +696,7 @@ export default function AdminDashboard() {
                         <td className="py-3">{hotel.email}</td>
                         <td className="py-3">{hotel.location}</td>
                         <td className="py-3">{hotel.category}</td>
+                        <td className="py-3 font-semibold">{hotel.rating.toFixed(1)}</td>
                         <td className="py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-semibold ${hotel.isOpen ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
                             {hotel.isOpen ? "Open" : "Closed"}
@@ -612,7 +712,7 @@ export default function AdminDashboard() {
                               {hotel.isOpen ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                             </button>
                             <button
-                              onClick={() => { setEditingHotel(hotel); setEditHotelForm({ name: hotel.name, phone: hotel.phone, location: hotel.location, category: hotel.category, password: "" }); }}
+                              onClick={() => { setEditingHotel(hotel); setEditHotelForm({ name: hotel.name, phone: hotel.phone, location: hotel.location, category: hotel.category, password: "", rating: String(hotel.rating) }); }}
                               className="p-1 text-primary hover:bg-primary/10 rounded"
                               title="Edit"
                             >
@@ -687,6 +787,9 @@ export default function AdminDashboard() {
                 <option value="South Indian">South Indian</option>
                 <option value="Desserts">Desserts</option>
               </select>
+              <input type="number" min="1" max="5" step="0.1" placeholder="Rating" value={editHotelForm.rating}
+                onChange={(e) => setEditHotelForm({ ...editHotelForm, rating: e.target.value })}
+                className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="password" placeholder="New Password (leave blank to keep current)" value={editHotelForm.password}
                 onChange={(e) => setEditHotelForm({ ...editHotelForm, password: e.target.value })}
                 className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />

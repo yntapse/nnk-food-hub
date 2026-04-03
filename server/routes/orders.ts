@@ -1,36 +1,56 @@
 import { RequestHandler } from "express";
 import { prisma } from "../db";
+import { DeliveryFeeError } from "../utils/delivery-fee";
+import { getOrderPricing } from "../utils/order-pricing";
 
 export const createOrder: RequestHandler = async (req, res) => {
   try {
     if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
-    const { hotelId, items, totalPrice, itemsPrice, deliveryFee, deliveryAddress, paymentMethod, customerPhone } = req.body;
+    const { hotelId, items, deliveryAddress, paymentMethod, customerPhone } = req.body;
+
+    const parsedHotelId = parseInt(hotelId);
+    const hotel = await prisma.hotel.findUnique({
+      where: { id: parsedHotelId },
+      select: { id: true, name: true, isOpen: true },
+    });
+
+    if (!hotel) { res.status(404).json({ error: "Restaurant not found" }); return; }
+    if (!hotel.isOpen) { res.status(400).json({ error: "This restaurant is currently offline" }); return; }
+
+    const pricing = await getOrderPricing(parseInt(req.user.id), parsedHotelId, items);
+
+    const deliveryOtp = Math.floor(1000 + Math.random() * 9000).toString();
 
     const order = await prisma.order.create({
       data: {
         userId: parseInt(req.user.id),
-        hotelId: parseInt(hotelId),
+        hotelId: parsedHotelId,
         items,
-        totalPrice: parseFloat(totalPrice),
-        itemsPrice: parseFloat(itemsPrice ?? totalPrice),
-        deliveryFee: parseFloat(deliveryFee ?? 0),
+        totalPrice: pricing.totalPrice,
+        itemsPrice: pricing.itemsPrice,
+        deliveryFee: pricing.deliveryFee,
         deliveryAddress,
         paymentMethod,
         customerPhone,
         status: "Placed",
+        deliveryOtp,
       },
     });
 
     await prisma.hotel.update({
-      where: { id: parseInt(hotelId) },
+      where: { id: parsedHotelId },
       data: { totalOrders: { increment: 1 } },
     });
 
     const io = req.app.get("io");
-    if (io) { io.to(`hotel-${hotelId}`).emit("newOrder", { order }); }
+    if (io) { io.to(`hotel-${parsedHotelId}`).emit("newOrder", { order }); }
 
     res.status(201).json({ message: "Order placed", order });
   } catch (error) {
+    if (error instanceof DeliveryFeeError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
     console.error("Error creating order:", error);
     res.status(500).json({ error: "Failed to create order" });
   }
@@ -51,6 +71,19 @@ export const getUserOrders: RequestHandler = async (req, res) => {
   } catch (error) {
     console.error("Error fetching user orders:", error);
     res.status(500).json({ error: "Failed to fetch orders" });
+  }
+};
+
+export const getUserOrderCount: RequestHandler = async (req, res) => {
+  try {
+    if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const count = await prisma.order.count({
+      where: { userId: parseInt(req.user.id) },
+    });
+    res.json({ count });
+  } catch (error) {
+    console.error("Error counting user orders:", error);
+    res.status(500).json({ error: "Failed to count orders" });
   }
 };
 

@@ -1,6 +1,8 @@
 import { RequestHandler } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import { DeliveryFeeError } from "../utils/delivery-fee";
+import { getOrderPricing } from "../utils/order-pricing";
 
 function getRazorpay() {
   const key_id = process.env.RAZORPAY_KEY_ID;
@@ -16,15 +18,23 @@ function getRazorpay() {
  */
 export const createPaymentOrder: RequestHandler = async (req, res) => {
   try {
-    const { amount } = req.body as { amount: number };
-    if (!amount || typeof amount !== "number" || amount <= 0) {
-      res.status(400).json({ error: "Invalid amount" });
+    if (!req.user) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
+    const { hotelId, items } = req.body as { hotelId: number | string; items: unknown };
+    const parsedHotelId = Number(hotelId);
+    if (!Number.isInteger(parsedHotelId)) {
+      res.status(400).json({ error: "Invalid hotel" });
+      return;
+    }
+
+    const pricing = await getOrderPricing(Number(req.user.id), parsedHotelId, items);
+
     const razorpay = getRazorpay();
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // convert ₹ to paise
+      amount: Math.round(pricing.totalPrice * 100),
       currency: "INR",
       receipt: `rcpt_${Date.now()}`,
     });
@@ -34,8 +44,17 @@ export const createPaymentOrder: RequestHandler = async (req, res) => {
       amount: order.amount,
       currency: order.currency,
       keyId: process.env.RAZORPAY_KEY_ID,
+      pricing: {
+        itemsPrice: pricing.itemsPrice,
+        deliveryFee: pricing.deliveryFee,
+        totalPrice: pricing.totalPrice,
+      },
     });
   } catch (err: unknown) {
+    if (err instanceof DeliveryFeeError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
     const message = err instanceof Error ? err.message : "Payment order creation failed";
     console.error("Razorpay create order error:", err);
     res.status(500).json({ error: message });

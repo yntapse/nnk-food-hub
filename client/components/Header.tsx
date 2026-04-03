@@ -1,8 +1,9 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingCart, LogOut, User, Menu, X } from "lucide-react";
+import { ShoppingCart, LogOut, User, Menu, X, MapPin } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useCartStore } from "@/stores/cartStore";
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function Header() {
   const { user, logout } = useAuthStore();
@@ -17,114 +18,129 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-border/50 shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+    <header className="sticky top-0 z-50 bg-white/97 backdrop-blur-xl border-b border-gray-100 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 h-20 flex items-center justify-between gap-3">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2.5 shrink-0">
-          <div className="w-9 h-9 bg-gradient-to-br from-primary to-orange-500 rounded-xl flex items-center justify-center text-white text-lg shadow-md shadow-primary/25">
-            🍔
+        <Link to="/" className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
+          <img
+            src="/niphad-bites-logo2.png"
+            alt="Niphad Bites logo"
+            className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl object-cover shadow-lg shadow-primary/20 border border-orange-100 shrink-0"
+          />
+          <div className="block min-w-0">
+            <span className="block font-extrabold text-base sm:text-xl tracking-tight leading-none truncate">
+              <span className="text-primary">Niphad </span>
+              <span className="text-gray-900">Bites</span>
+            </span>
+            <div className="hidden sm:flex items-center gap-1 text-xs text-gray-400 font-medium mt-1">
+              <MapPin size={11} /> Niphad, Maharashtra
+            </div>
           </div>
-          <span className="font-extrabold text-xl tracking-tight">
-            <span className="text-primary">Niphad </span>
-            <span className="text-foreground">Food Hub</span>
-          </span>
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-2">
+        <nav className="hidden md:flex items-center gap-1.5">
           {user ? (
             <>
               <Link to="/dashboard" className="btn-ghost text-sm flex items-center gap-1.5">
-                <User size={16} />
-                Dashboard
+                <User size={15} /> Dashboard
               </Link>
               {user.role === "user" && (
                 <Link to="/cart" className="btn-ghost text-sm flex items-center gap-1.5 relative">
-                  <ShoppingCart size={16} />
-                  Cart
+                  <ShoppingCart size={15} /> Cart
                   {itemCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-bounce-in">
+                    <motion.span
+                      key={itemCount}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center"
+                    >
                       {itemCount}
-                    </span>
+                    </motion.span>
                   )}
                 </Link>
               )}
-              <div className="w-px h-6 bg-border mx-1" />
+              <div className="w-px h-5 bg-gray-200 mx-1" />
               <button onClick={handleLogout} className="btn-ghost text-sm flex items-center gap-1.5 text-red-500 hover:text-red-600 hover:bg-red-50">
-                <LogOut size={16} />
-                Logout
+                <LogOut size={15} /> Logout
               </button>
             </>
           ) : (
             <>
-              <Link to="/login" className="btn-ghost text-sm font-semibold">
-                Login
-              </Link>
-              <Link to="/signup" className="btn-primary text-sm py-2.5 px-5 rounded-xl">
-                Sign Up
-              </Link>
+              <Link to="/login" className="btn-ghost text-sm font-semibold">Login</Link>
+              <Link to="/signup" className="btn-primary text-sm py-2 px-4 rounded-xl">Sign Up</Link>
             </>
           )}
         </nav>
 
-        {/* Mobile: cart + hamburger */}
-        <div className="flex md:hidden items-center gap-2">
+        {/* Mobile: cart badge + hamburger */}
+        <div className="flex md:hidden items-center gap-1">
           {user?.role === "user" && (
-            <Link to="/cart" className="relative p-2">
-              <ShoppingCart size={22} className="text-foreground" />
+            <Link to="/cart" className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors">
+              <ShoppingCart size={20} className="text-gray-700" />
               {itemCount > 0 && (
-                <span className="absolute top-0.5 right-0.5 w-5 h-5 bg-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {itemCount}
+                <span className="absolute top-1 right-1 w-4 h-4 bg-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {itemCount > 9 ? "9+" : itemCount}
                 </span>
               )}
             </Link>
           )}
           <button
             onClick={() => setMobileOpen(!mobileOpen)}
-            className="p-2 rounded-xl hover:bg-secondary transition-colors"
+            className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            aria-label="Menu"
           >
-            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+            {mobileOpen ? <X size={20} className="text-gray-700" /> : <Menu size={20} className="text-gray-700" />}
           </button>
         </div>
       </div>
 
-      {/* Mobile Menu */}
-      {mobileOpen && (
-        <div className="md:hidden bg-white border-t border-border animate-slide-up">
-          <div className="px-4 py-4 space-y-1">
-            {user ? (
-              <>
-                <div className="px-3 py-2 mb-2">
-                  <p className="text-sm text-muted-foreground">Signed in as</p>
-                  <p className="font-semibold text-foreground">{user.name}</p>
+      {/* Mobile dropdown menu */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.18 }}
+            className="md:hidden bg-white border-t border-gray-100 shadow-lg"
+          >
+            <div className="px-4 py-3 space-y-1">
+              {user ? (
+                <>
+                  <div className="px-3 py-2.5 mb-1 bg-orange-50 rounded-xl">
+                    <p className="text-xs text-gray-500">Signed in as</p>
+                    <p className="font-extrabold text-gray-900 text-sm">{user.name}</p>
+                    <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full font-bold capitalize">{user.role}</span>
+                  </div>
+                  <Link
+                    to="/dashboard"
+                    onClick={() => setMobileOpen(false)}
+                    className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-sm font-semibold"
+                  >
+                    <User size={17} className="text-gray-500" /> Dashboard
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-colors text-sm font-semibold"
+                  >
+                    <LogOut size={17} /> Logout
+                  </button>
+                </>
+              ) : (
+                <div className="flex flex-col gap-2 py-1">
+                  <Link to="/login" onClick={() => setMobileOpen(false)} className="btn-outline w-full text-center text-sm py-3">
+                    Login
+                  </Link>
+                  <Link to="/signup" onClick={() => setMobileOpen(false)} className="btn-primary w-full text-center text-sm py-3">
+                    Sign Up
+                  </Link>
                 </div>
-                <Link
-                  to="/dashboard"
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-secondary transition-colors"
-                >
-                  <User size={18} /> Dashboard
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-red-500 hover:bg-red-50 transition-colors"
-                >
-                  <LogOut size={18} /> Logout
-                </button>
-              </>
-            ) : (
-              <div className="flex flex-col gap-2 pt-2">
-                <Link to="/login" onClick={() => setMobileOpen(false)} className="btn-outline w-full text-center">
-                  Login
-                </Link>
-                <Link to="/signup" onClick={() => setMobileOpen(false)} className="btn-primary w-full text-center">
-                  Sign Up
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 }

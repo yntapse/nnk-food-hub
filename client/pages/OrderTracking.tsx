@@ -2,8 +2,9 @@ import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiUrl } from "@/lib/api";
 import Header from "@/components/Header";
+import GoogleMapEmbed from "@/components/GoogleMapEmbed";
 import { useAuthStore } from "@/stores/authStore";
-import { Package, Truck, MapPin, Clock, PhoneCall, CheckCircle, ArrowLeft } from "lucide-react";
+import { Package, Truck, MapPin, Clock, PhoneCall, CheckCircle, ArrowLeft, KeyRound } from "lucide-react";
 import { initializeSocket, disconnectSocket } from "@/services/socket";
 
 interface Order {
@@ -14,6 +15,7 @@ interface Order {
   items: Array<{ name: string; quantity: number }>;
   createdAt: string;
   rider?: { name: string; phone: string };
+  deliveryOtp?: string;
 }
 
 const statusSteps = [
@@ -114,6 +116,14 @@ export default function OrderTracking() {
             <span className="flex items-center gap-1"><MapPin size={14} /> {order.hotel.location}</span>
             <span className="flex items-center gap-1"><Clock size={14} /> {new Date(order.createdAt).toLocaleString()}</span>
           </div>
+
+          <div className="mt-4">
+            <GoogleMapEmbed
+              query={`${order.hotel.name}, ${order.hotel.location}`}
+              title="Restaurant location"
+              heightClassName="h-52"
+            />
+          </div>
         </div>
 
         {/* Status Timeline */}
@@ -176,6 +186,26 @@ export default function OrderTracking() {
               <a href={`tel:${order.rider.phone}`} className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center text-primary hover:bg-primary hover:text-white transition-colors">
                 <PhoneCall size={18} />
               </a>
+            </div>
+          </div>
+        )}
+
+        {/* Delivery OTP — only shown when rider is out for delivery */}
+        {order.deliveryOtp && order.status === "Out for Delivery" && (
+          <div className="card-base mb-6 border-2 border-primary/40 bg-primary/5">
+            <div className="flex items-center gap-2 mb-2">
+              <KeyRound size={18} className="text-primary" />
+              <h3 className="text-base font-extrabold text-primary">Delivery OTP</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-3">
+              Share this code with the rider when they arrive to confirm delivery.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              {order.deliveryOtp.split("").map((digit, i) => (
+                <div key={i} className="w-14 h-14 rounded-xl bg-white border-2 border-primary flex items-center justify-center text-2xl font-black text-primary shadow-md">
+                  {digit}
+                </div>
+              ))}
             </div>
           </div>
         )}

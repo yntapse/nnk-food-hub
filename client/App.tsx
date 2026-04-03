@@ -17,6 +17,7 @@ import HotelDashboard from "./pages/dashboards/HotelDashboard";
 import RiderDashboard from "./pages/dashboards/RiderDashboard";
 import AdminDashboard from "./pages/dashboards/AdminDashboard";
 import NotFound from "./pages/NotFound";
+import BottomNav from "./components/BottomNav";
 import { useAuthStore } from "./stores/authStore";
 import { useEffect } from "react";
 
@@ -91,6 +92,7 @@ const App = () => {
             {/* Catch All */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <BottomNav />
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>

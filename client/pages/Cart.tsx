@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import Header from "@/components/Header";
+import GoogleMapEmbed from "@/components/GoogleMapEmbed";
 import { useCartStore } from "@/stores/cartStore";
 import { useAuthStore } from "@/stores/authStore";
 import { apiUrl } from "@/lib/api";
-import { Trash2, Minus, Plus, ShoppingBag, ArrowLeft, MapPin, Phone, IndianRupee, ShieldCheck } from "lucide-react";
+import { Trash2, Minus, Plus, ShoppingBag, ArrowLeft, MapPin, Phone, IndianRupee, ShieldCheck, PartyPopper, Bike } from "lucide-react";
 
 // Extend window for Razorpay
 declare global {
@@ -33,17 +34,55 @@ interface RazorpayInstance {
   open(): void;
 }
 
+interface DeliveryFeeSettings {
+  deliveryFeeAmount: number;
+  freeDeliveryThreshold: number;
+  firstOrderFree: boolean;
+}
+
 export default function Cart() {
   const navigate = useNavigate();
   const { items, hotelName, hotelId, removeItem, updateQuantity, clearCart, getTotal } = useCartStore();
   const { user, token } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
-  const [paymentId, setPaymentId] = useState(""); // set after successful Razorpay payment
+  const [paymentId, setPaymentId] = useState("");
+  const [orderCount, setOrderCount] = useState<number | null>(null);
+  const [deliverySettings, setDeliverySettings] = useState<DeliveryFeeSettings | null>(null);
   const savedAddress = user?.address || "";
   const [formData, setFormData] = useState({
     customerPhone: user?.phone || "",
   });
+
+  useEffect(() => {
+    if (!token) return;
+
+    Promise.all([
+      fetch(apiUrl("/api/orders/count"), {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then((r) => r.json()),
+      fetch(apiUrl("/api/admin/delivery-settings")).then((r) => r.json()),
+    ])
+      .then(([countData, settingsData]) => {
+        setOrderCount(countData.count ?? 0);
+        setDeliverySettings(settingsData);
+      })
+      .catch(() => {
+        setOrderCount(0);
+        setDeliverySettings(null);
+      });
+  }, [token]);
+
+  const subtotal = getTotal();
+  const isFirstOrder = orderCount === 0;
+  const isAboveMinimum = deliverySettings ? subtotal >= deliverySettings.freeDeliveryThreshold : false;
+  const isFreeDelivery = deliverySettings
+    ? (deliverySettings.firstOrderFree && isFirstOrder) || isAboveMinimum
+    : false;
+  const deliveryFee = orderCount === null || !deliverySettings
+    ? 0
+    : (isFreeDelivery ? 0 : deliverySettings.deliveryFeeAmount);
+  const totalToPay = subtotal + deliveryFee;
 
   // Load Razorpay JS SDK once on mount
   useEffect(() => {
@@ -72,7 +111,14 @@ export default function Cart() {
       const res = await fetch(apiUrl("/api/payment/create-order"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: getTotal() + deliveryFee }),
+        body: JSON.stringify({
+          hotelId,
+          items: items.map((item) => ({
+            menuItemId: item.id,
+            name: item.name,
+            quantity: item.quantity,
+          })),
+        }),
       });
       if (!res.ok) { alert("Could not initiate payment. Try again."); return; }
       const { orderId, amount, currency, keyId } = await res.json();
@@ -81,7 +127,7 @@ export default function Cart() {
         key: keyId,
         amount,
         currency,
-        name: hotelName || "Niphad Food Hub",
+        name: hotelName || "Niphad Bites",
         description: "Food Order Payment",
         order_id: orderId,
         handler: async (response: RazorpayResponse) => {
@@ -136,9 +182,6 @@ export default function Cart() {
           price: item.price,
           quantity: item.quantity,
         })),
-        itemsPrice: getTotal(),
-        deliveryFee: deliveryFee,
-        totalPrice: getTotal() + deliveryFee,
         deliveryAddress: savedAddress,
         paymentMethod: "UPI",
         paymentId,
@@ -156,7 +199,8 @@ export default function Cart() {
         clearCart();
         navigate(`/order/${data.order.id}`);
       } else {
-        console.error("Failed to place order");
+        const data = await response.json().catch(() => null);
+        alert(data?.error || "Failed to place order");
       }
     } catch (error) {
       console.error("Error placing order:", error);
@@ -166,8 +210,7 @@ export default function Cart() {
   };
 
   /* ── Empty cart ── */
-  if (items.length === 0) {
-    return (
+  if (items.length === 0) {    return (
       <div className="min-h-screen bg-background">
         <Header />
         <div className="flex flex-col items-center justify-center py-20 px-4">
@@ -185,8 +228,6 @@ export default function Cart() {
       </div>
     );
   }
-
-  const deliveryFee = 10;
 
   return (
     <div className="min-h-screen bg-background pb-28 lg:pb-8">
@@ -251,20 +292,47 @@ export default function Cart() {
             <div className="card-base sticky top-20 space-y-5">
               <h3 className="text-lg font-extrabold">Bill Details</h3>
 
+              {/* Free delivery banner */}
+              {orderCount !== null && deliverySettings && isFreeDelivery && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2.5 text-sm text-green-700">
+                  <PartyPopper size={15} className="shrink-0 text-green-600" />
+                  <span className="font-semibold">
+                    {deliverySettings.firstOrderFree && isFirstOrder
+                      ? "First order - Free delivery!"
+                      : `Order above ₹${deliverySettings.freeDeliveryThreshold} - Free delivery!`}
+                  </span>
+                </div>
+              )}
+              {orderCount !== null && deliverySettings && !isFreeDelivery && (
+                <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-xs text-blue-600">
+                  <Bike size={13} className="shrink-0" />
+                  <span>Add items worth <span className="font-bold">₹{Math.max(0, deliverySettings.freeDeliveryThreshold - subtotal)}</span> more to get free delivery</span>
+                </div>
+              )}
+
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Item Total</span>
-                  <span className="font-semibold">₹{getTotal()}</span>
+                  <span className="font-semibold">₹{subtotal}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Delivery Fee</span>
-                  <span className="font-semibold">₹{deliveryFee}</span>
+                  {orderCount === null ? (
+                    <span className="text-xs text-muted-foreground animate-pulse">Calculating…</span>
+                  ) : isFreeDelivery ? (
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <span className="line-through text-muted-foreground text-xs">₹{deliverySettings?.deliveryFeeAmount ?? 0}</span>
+                      <span className="text-green-600 font-bold">FREE</span>
+                    </span>
+                  ) : (
+                    <span className="font-semibold">₹{deliveryFee}</span>
+                  )}
                 </div>
               </div>
 
               <div className="flex justify-between font-extrabold text-lg pt-3 border-t border-border">
                 <span>TO PAY</span>
-                <span>₹{getTotal() + deliveryFee}</span>
+                <span>₹{totalToPay}</span>
               </div>
 
               {/* Checkout form */}
@@ -274,12 +342,20 @@ export default function Cart() {
                     <MapPin size={14} className="text-primary" /> Delivery Address
                   </label>
                   {savedAddress ? (
-                    <div className="flex items-start gap-2 bg-secondary rounded-xl px-4 py-3">
-                      <MapPin size={14} className="text-primary mt-0.5 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium break-words">{savedAddress}</p>
-                        <Link to="/dashboard" className="text-xs text-primary hover:underline">Change address</Link>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2 bg-secondary rounded-xl px-4 py-3">
+                        <MapPin size={14} className="text-primary mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium break-words">{savedAddress}</p>
+                          <Link to="/dashboard" className="text-xs text-primary hover:underline">Change address</Link>
+                        </div>
                       </div>
+
+                      <GoogleMapEmbed
+                        query={savedAddress}
+                        title="Delivery location"
+                        heightClassName="h-48"
+                      />
                     </div>
                   ) : (
                     <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
@@ -310,11 +386,11 @@ export default function Cart() {
                     <button
                       type="button"
                       onClick={handleOpenRazorpay}
-                      disabled={paymentLoading || !savedAddress}
+                      disabled={paymentLoading || !savedAddress || orderCount === null || deliverySettings === null}
                       className="btn-primary w-full py-4 text-base rounded-2xl shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       <IndianRupee size={18} />
-                      {paymentLoading ? "Opening Payment..." : `Pay ₹${getTotal() + deliveryFee} via Razorpay`}
+                      {paymentLoading ? "Opening Payment..." : `Pay ₹${totalToPay} via Razorpay`}
                     </button>
                     <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
                       <ShieldCheck size={12} className="text-green-500" />
@@ -336,7 +412,7 @@ export default function Cart() {
                       disabled={loading}
                       className="btn-primary w-full py-4 text-base rounded-2xl shadow-xl disabled:opacity-50"
                     >
-                      {loading ? "Placing Order..." : `Confirm Order  •  ₹${getTotal() + deliveryFee}`}
+                      {loading ? "Placing Order..." : `Confirm Order  •  ₹${totalToPay}`}
                     </button>
                   </div>
                 )}
@@ -350,7 +426,7 @@ export default function Cart() {
       <div className="fixed bottom-0 left-0 right-0 z-30 p-3 bg-white/95 backdrop-blur-md border-t border-border lg:hidden">
         <div className="flex items-center justify-between text-sm mb-2 px-1">
           <span className="text-muted-foreground">{items.length} item{items.length > 1 ? "s" : ""}</span>
-          <span className="font-extrabold text-lg">₹{getTotal() + deliveryFee}</span>
+          <span className="font-extrabold text-lg">₹{totalToPay}</span>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@ import { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
   appId: "com.niphadfoodhub.app",
-  appName: "Niphad Food Hub",
+  appName: "Niphad Bites",
   webDir: "dist/spa",
   server: {
     // During development: point to your backend URL so API calls work on device.

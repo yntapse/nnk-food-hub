@@ -73,6 +73,9 @@ model Admin {
   password  String
   name      String   @default("Admin")
   upiId     String   @default("")
+  deliveryFeeAmount    Float    @default(30)
+  freeDeliveryThreshold Float   @default(200)
+  firstOrderFree       Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -93,6 +96,7 @@ model Order {
   paymentMethod   String   @default("COD")
   customerPhone   String   @default("")
   status          String   @default("Placed")
+  deliveryOtp     String   @default("")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

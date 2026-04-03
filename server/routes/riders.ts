@@ -81,9 +81,21 @@ export const completeDelivery: RequestHandler = async (req, res) => {
     if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
     const orderId = parseInt(req.params.orderId);
     const riderId = parseInt(req.user.id);
+    const { otp } = req.body;
+
+    if (!otp) { res.status(400).json({ error: "Delivery OTP is required" }); return; }
+
+    // Fetch existing order to verify OTP
+    const existing = await prisma.order.findUnique({ where: { id: orderId }, select: { deliveryOtp: true, totalPrice: true, userId: true } });
+    if (!existing) { res.status(404).json({ error: "Order not found" }); return; }
+
+    if (existing.deliveryOtp !== String(otp).trim()) {
+      res.status(400).json({ error: "Invalid OTP. Please ask the customer for the correct code." });
+      return;
+    }
 
     const order = await prisma.order.update({ where: { id: orderId }, data: { status: "Delivered" } });
-    const earning = Math.round(order.totalPrice * 0.1);
+    const earning = Math.round(existing.totalPrice * 0.1);
     await prisma.rider.update({
       where: { id: riderId },
       data: { totalEarnings: { increment: earning } },
@@ -91,7 +103,7 @@ export const completeDelivery: RequestHandler = async (req, res) => {
 
     const io = req.app.get("io");
     if (io) {
-      io.to(`user-${order.userId}`).emit("orderStatusUpdate", { orderId, status: "Delivered" });
+      io.to(`user-${existing.userId}`).emit("orderStatusUpdate", { orderId, status: "Delivered" });
     }
 
     const activeCount = await prisma.order.count({

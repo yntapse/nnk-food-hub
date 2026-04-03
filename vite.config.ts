@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     fs: {
-      allow: ["./client", "./shared"],
+      allow: ["./client", "./shared", "./public"],
       deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "server/**"],
     },
   },
@@ -29,13 +29,27 @@ function expressPlugin(): Plugin {
     name: "express-plugin",
     apply: "serve", // Only apply during development (serve mode)
     configureServer(server) {
-      // Dynamically import to avoid PrismaClient being bundled into vite config
+      // Add a synchronous placeholder middleware BEFORE Vite's internal middleware
+      // (SPA fallback, static file, etc.) so API requests are captured first.
+      // The actual Express app is loaded asynchronously to avoid bundling PrismaClient.
+      let expressApp: ((req: any, res: any, next: any) => void) | null = null;
+
+      server.middlewares.use("/api", (req, res, next) => {
+        if (expressApp) {
+          // Restore the full URL so Express sees /api/... paths
+          req.url = "/api" + (req.url ?? "");
+          expressApp(req, res, next);
+        } else {
+          next();
+        }
+      });
+
       import("./server").then(({ createServer }) => {
         // Pass Vite's httpServer so socket.io binds to the same port (8080)
-        const { app } = createServer(server.httpServer ?? undefined);
-
-        // Add Express app as middleware to Vite dev server
-        server.middlewares.use(app);
+        const { app } = createServer((server.httpServer as import("http").Server) ?? undefined);
+        expressApp = app;
+      }).catch((err) => {
+        console.error("[express-plugin] Failed to load server:", err);
       });
     },
   };

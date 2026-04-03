@@ -14,8 +14,11 @@ const hotelPublicSelect = {
 export const getAllHotels: RequestHandler = async (_req, res) => {
   try {
     const hotels = await prisma.hotel.findMany({
-      where: { isOpen: true },
       select: hotelPublicSelect,
+      orderBy: [
+        { isOpen: "desc" },
+        { rating: "desc" },
+      ],
     });
     res.json(hotels);
   } catch (error) {
@@ -40,7 +43,7 @@ export const getHotelMenu: RequestHandler = async (req, res) => {
   try {
     const hotelId = parseInt(req.params.hotelId);
     const menuItems = await prisma.menuItem.findMany({
-      where: { hotelId, isAvailable: true },
+      where: { hotelId },
       orderBy: { category: "asc" },
     });
     res.json(menuItems);

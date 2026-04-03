@@ -25,8 +25,15 @@ interface MenuItem {
   isAvailable: boolean;
 }
 
+interface HotelProfile {
+  id: number;
+  name: string;
+  isOpen: boolean;
+}
+
 export default function HotelDashboard() {
   const { token } = useAuthStore();
+  const [profile, setProfile] = useState<HotelProfile | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -97,6 +104,7 @@ export default function HotelDashboard() {
       });
       if (res.ok) {
         const data = await res.json();
+        setProfile({ id: data.id, name: data.name, isOpen: data.isOpen });
         if (data.upiId) setUpiId(data.upiId);
       }
     } catch (e) {
@@ -130,6 +138,7 @@ export default function HotelDashboard() {
       const profileRes = await fetch(apiUrl("/api/hotel/profile"), { headers: { Authorization: `Bearer ${token}` } });
       if (profileRes.ok) {
         const profile = await profileRes.json();
+        setProfile({ id: profile.id, name: profile.name, isOpen: profile.isOpen });
         const menuRes = await fetch(apiUrl(`/api/hotels/${profile.id}/menu`));
         if (menuRes.ok) {
           const authMenuRes = await fetch(apiUrl("/api/hotel/menu/all"), { headers: { Authorization: `Bearer ${token}` } });
@@ -157,6 +166,36 @@ export default function HotelDashboard() {
       if (res.ok) fetchMenuItems();
     } catch (e) {
       console.error("Error deleting menu item:", e);
+    }
+  };
+
+  const toggleRestaurantStatus = async () => {
+    if (!profile) return;
+    try {
+      const res = await fetch(apiUrl("/api/hotel/profile"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isOpen: !profile.isOpen }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setProfile((current) => current ? { ...current, isOpen: data.hotel.isOpen } : current);
+      }
+    } catch (e) {
+      console.error("Error updating restaurant status:", e);
+    }
+  };
+
+  const toggleMenuAvailability = async (item: MenuItem) => {
+    try {
+      const res = await fetch(apiUrl(`/api/hotel/menu/${item.id}`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ isAvailable: !item.isAvailable }),
+      });
+      if (res.ok) fetchMenuItems();
+    } catch (e) {
+      console.error("Error toggling menu availability:", e);
     }
   };
 
@@ -282,6 +321,30 @@ export default function HotelDashboard() {
               <button onClick={() => { setNewOrderAlert(false); stopBeeping(); }} className="text-xs underline ml-2">Dismiss</button>
             </div>
           )}
+        </div>
+
+        <div className={`card-base mb-8 border-2 ${profile?.isOpen ? "border-green-200 bg-green-50/70" : "border-gray-300 bg-gray-100"}`}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-bold">Restaurant Visibility</h3>
+              <p className="text-sm text-muted-foreground">
+                {profile?.isOpen
+                  ? "Your restaurant is online. Customers can view the menu and place orders."
+                  : "Your restaurant is offline. Customers can see the restaurant, but ordering is locked."}
+              </p>
+            </div>
+            <button
+              onClick={toggleRestaurantStatus}
+              className={`inline-flex items-center gap-2 px-5 py-3 rounded-xl font-semibold border-2 transition-all ${
+                profile?.isOpen
+                  ? "border-green-500 bg-white text-green-700"
+                  : "border-gray-400 bg-white text-gray-700"
+              }`}
+            >
+              {profile?.isOpen ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+              {profile?.isOpen ? "Online" : "Offline"}
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -415,6 +478,13 @@ export default function HotelDashboard() {
                       <p className="text-muted-foreground text-xs truncate">{item.category}{item.description ? ` · ${item.description}` : ""}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => toggleMenuAvailability(item)}
+                        className={`p-2 rounded-lg border transition-colors ${item.isAvailable ? "border-green-200 text-green-700 hover:bg-green-50" : "border-gray-300 text-gray-600 hover:bg-gray-100"}`}
+                        title={item.isAvailable ? "Mark unavailable" : "Mark available"}
+                      >
+                        {item.isAvailable ? <ToggleRight size={16} /> : <ToggleLeft size={16} />}
+                      </button>
                       <button
                         onClick={() => openEdit(item)}
                         className="p-2 rounded-lg border border-border hover:bg-primary hover:text-white hover:border-primary transition-colors"

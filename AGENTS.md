@@ -179,6 +179,6 @@ const data: MyRouteResponse = await response.json();
 # Hotel	Town Biryani House	biryani@example.com	Hotel@123
 # Hotel	Pizza Point	pizza@example.com	Hotel@123
 # Hotel	Street Dosa Corner	dosa@example.com	Hotel@123
-
-  postgresql://neondb_owner:npg_k8mVZDB4apNz@ep-rough-waterfall-anq37y16-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+<!-- 
+  postgresql://neondb_owner:npg_k8mVZDB4apNz@ep-rough-waterfall-anq37y16-pooler.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require -->
 

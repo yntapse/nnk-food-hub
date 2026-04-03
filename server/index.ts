@@ -5,7 +5,7 @@ import { prisma } from "./db";
 import { createServer as createHttpServer } from "http";
 import type { Server as HttpServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
-import { signup, login } from "./routes/auth";
+import { signup, login, sendOtp } from "./routes/auth";
 import * as hotelsRoutes from "./routes/hotels";
 import * as ordersRoutes from "./routes/orders";
 import * as ridersRoutes from "./routes/riders";
@@ -108,6 +108,7 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.set("io", io);
 
   // Authentication Routes
+  app.post("/api/auth/send-otp", sendOtp);
   app.post("/api/auth/signup", signup);
   app.post("/api/auth/login", login);
 
@@ -162,6 +163,7 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.use("/api/orders", authMiddleware);
   app.post("/api/orders", ordersRoutes.createOrder);
   app.get("/api/orders/my-orders", ordersRoutes.getUserOrders);
+  app.get("/api/orders/count", ordersRoutes.getUserOrderCount);
   app.get("/api/orders/:orderId", ordersRoutes.getOrderById);
   app.put("/api/orders/:orderId/status", ordersRoutes.updateOrderStatus);
 
@@ -178,6 +180,7 @@ export function createServer(existingHttpServer?: HttpServer) {
 
   // Public admin endpoint — must be BEFORE the auth middleware
   app.get("/api/admin/upi", adminRoutes.getAdminUpi);
+  app.get("/api/admin/delivery-settings", adminRoutes.getDeliverySettings);
 
   // Admin Routes
   app.use("/api/admin", authMiddleware, requireRole("admin"));
@@ -197,6 +200,7 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.get("/api/admin/orders", adminRoutes.getAllOrders);
   app.post("/api/admin/orders/:orderId/assign-rider", adminRoutes.assignRiderToOrder);
   app.put("/api/admin/upi", adminRoutes.updateAdminUpi);
+  app.put("/api/admin/delivery-settings", adminRoutes.updateDeliverySettings);
 
   // Example API routes
   app.get("/api/ping", (_req, res) => {
