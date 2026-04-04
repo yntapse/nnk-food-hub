@@ -23,7 +23,7 @@ const riderSelect = {
 const hotelSelect = {
   id: true, name: true, email: true, phone: true, location: true,
   category: true, rating: true, totalOrders: true, totalEarnings: true,
-  isOpen: true, createdAt: true, updatedAt: true,
+  isOpen: true, razorpayAccountId: true, createdAt: true, updatedAt: true,
 };
 
 export const getAllUsers: RequestHandler = async (_req, res) => {
@@ -61,6 +61,10 @@ export const createRider: RequestHandler = async (req, res) => {
     const { name, email, phone, password } = req.body;
     const existing = await prisma.rider.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: "Rider already exists" }); return; }
+    if (phone) {
+      const phoneExists = await prisma.rider.findFirst({ where: { phone: { endsWith: phone.replace(/\D/g, "").slice(-10) } } });
+      if (phoneExists) { res.status(400).json({ error: "This phone number is already registered as a rider" }); return; }
+    }
     const hashedPassword = await hashPassword(password);
     const rider = await prisma.rider.create({
       data: { name, email, phone, password: hashedPassword },
@@ -75,9 +79,13 @@ export const createRider: RequestHandler = async (req, res) => {
 
 export const createHotel: RequestHandler = async (req, res) => {
   try {
-    const { name, email, phone, password, location, category, rating } = req.body;
+    const { name, email, phone, password, location, category, rating, razorpayAccountId } = req.body;
     const existing = await prisma.hotel.findUnique({ where: { email } });
     if (existing) { res.status(400).json({ error: "Hotel already exists" }); return; }
+    if (phone) {
+      const phoneExists = await prisma.hotel.findFirst({ where: { phone: { endsWith: phone.replace(/\D/g, "").slice(-10) } } });
+      if (phoneExists) { res.status(400).json({ error: "This phone number is already registered as a restaurant" }); return; }
+    }
     const hashedPassword = await hashPassword(password);
     const normalizedRating = normalizeRating(rating);
     const hotel = await prisma.hotel.create({
@@ -89,6 +97,7 @@ export const createHotel: RequestHandler = async (req, res) => {
         location,
         category,
         ...(normalizedRating !== undefined ? { rating: normalizedRating } : {}),
+        ...(razorpayAccountId ? { razorpayAccountId } : {}),
       },
       select: hotelSelect,
     });
@@ -233,16 +242,17 @@ export const toggleHotel: RequestHandler = async (req, res) => {
 export const updateHotel: RequestHandler = async (req, res) => {
   try {
     const id = parseInt(req.params.hotelId);
-    const { name, phone, password, location, category, rating } = req.body;
+    const { name, phone, password, location, category, rating, razorpayAccountId } = req.body;
     const data: Record<string, string | number> = {};
     if (name) data.name = name;
     if (phone) data.phone = phone;
     if (password) data.password = await hashPassword(password);
     if (location) data.location = location;
     if (category) data.category = category;
+    if (razorpayAccountId !== undefined) data.razorpayAccountId = razorpayAccountId;
     const normalizedRating = normalizeRating(rating);
     if (normalizedRating !== undefined) data.rating = normalizedRating;
-    const updated = await prisma.hotel.update({ where: { id }, data, select: { id: true, name: true, email: true, phone: true, location: true, category: true, rating: true, isOpen: true } });
+    const updated = await prisma.hotel.update({ where: { id }, data, select: { id: true, name: true, email: true, phone: true, location: true, category: true, rating: true, isOpen: true, razorpayAccountId: true } });
     res.json({ message: "Hotel updated", hotel: updated });
   } catch (error) {
     console.error("Error updating hotel:", error);

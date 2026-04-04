@@ -5,7 +5,7 @@ import { prisma } from "./db";
 import { createServer as createHttpServer } from "http";
 import type { Server as HttpServer } from "http";
 import { Server as SocketIOServer } from "socket.io";
-import { signup, login, sendOtp } from "./routes/auth";
+import { signup, login, sendOtp, forgotPassword, resetPassword } from "./routes/auth";
 import * as hotelsRoutes from "./routes/hotels";
 import * as ordersRoutes from "./routes/orders";
 import * as ridersRoutes from "./routes/riders";
@@ -14,6 +14,7 @@ import { authMiddleware, requireRole } from "./middleware/auth";
 import { verifyToken } from "./utils/auth";
 import { handleDemo } from "./routes/demo";
 import { createPaymentOrder, verifyPayment } from "./routes/payment";
+import * as settlementRoutes from "./routes/settlements";
 import { seedDB } from "./seed";
 
 let dbConnected = false;
@@ -111,6 +112,8 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.post("/api/auth/send-otp", sendOtp);
   app.post("/api/auth/signup", signup);
   app.post("/api/auth/login", login);
+  app.post("/api/auth/forgot-password", forgotPassword);
+  app.post("/api/auth/reset-password", resetPassword);
 
   // User profile routes
   app.use("/api/user", authMiddleware, requireRole("user"));
@@ -158,6 +161,9 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.delete("/api/hotel/menu/:itemId", hotelsRoutes.deleteMenuItem);
   app.get("/api/hotel/orders", hotelsRoutes.getHotelOrders);
   app.put("/api/hotel/orders/:orderId/status", hotelsRoutes.updateOrderStatus);
+  app.get("/api/hotel/settlements/earnings", settlementRoutes.getHotelEarnings);
+  app.post("/api/hotel/settlements/request", settlementRoutes.requestSettlement);
+  app.get("/api/hotel/settlements/history", settlementRoutes.getHotelSettlementHistory);
 
   // Order Routes
   app.use("/api/orders", authMiddleware);
@@ -201,6 +207,10 @@ export function createServer(existingHttpServer?: HttpServer) {
   app.post("/api/admin/orders/:orderId/assign-rider", adminRoutes.assignRiderToOrder);
   app.put("/api/admin/upi", adminRoutes.updateAdminUpi);
   app.put("/api/admin/delivery-settings", adminRoutes.updateDeliverySettings);
+  app.get("/api/admin/settlements/daily-stats", settlementRoutes.getDailyStats);
+  app.get("/api/admin/settlements/pending", settlementRoutes.getPendingSettlements);
+  app.get("/api/admin/settlements/all", settlementRoutes.getAllSettlements);
+  app.put("/api/admin/settlements/:id/pay", settlementRoutes.markSettlementPaid);
 
   // Example API routes
   app.get("/api/ping", (_req, res) => {

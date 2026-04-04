@@ -1,6 +1,7 @@
 import { RequestHandler } from "express";
 import Razorpay from "razorpay";
 import crypto from "crypto";
+import { prisma } from "../db";
 import { DeliveryFeeError } from "../utils/delivery-fee";
 import { getOrderPricing } from "../utils/order-pricing";
 
@@ -14,7 +15,8 @@ function getRazorpay() {
 }
 
 /** POST /api/payment/create-order
- *  Creates a Razorpay order on the server (amount in rupees, converted to paise)
+ *  Creates a Razorpay order. Full payment goes to admin's Razorpay account.
+ *  Platform fee (17%) and hotel payout (83%) are tracked in the order record.
  */
 export const createPaymentOrder: RequestHandler = async (req, res) => {
   try {
@@ -30,11 +32,19 @@ export const createPaymentOrder: RequestHandler = async (req, res) => {
       return;
     }
 
+    const hotel = await prisma.hotel.findUnique({
+      where: { id: parsedHotelId },
+      select: { id: true, name: true, isOpen: true },
+    });
+    if (!hotel) { res.status(404).json({ error: "Restaurant not found" }); return; }
+    if (!hotel.isOpen) { res.status(400).json({ error: "Restaurant is currently offline" }); return; }
+
     const pricing = await getOrderPricing(Number(req.user.id), parsedHotelId, items);
+    const totalPaise = Math.round(pricing.totalPrice * 100);
 
     const razorpay = getRazorpay();
     const order = await razorpay.orders.create({
-      amount: Math.round(pricing.totalPrice * 100),
+      amount: totalPaise,
       currency: "INR",
       receipt: `rcpt_${Date.now()}`,
     });
@@ -62,10 +72,9 @@ export const createPaymentOrder: RequestHandler = async (req, res) => {
 };
 
 /** POST /api/payment/verify
- *  Verifies payment signature after successful payment
- *  Must be called before placing the food order
+ *  Verifies payment signature after successful payment.
  */
-export const verifyPayment: RequestHandler = (req, res) => {
+export const verifyPayment: RequestHandler = async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as {
       razorpay_order_id: string;
@@ -84,7 +93,6 @@ export const verifyPayment: RequestHandler = (req, res) => {
       return;
     }
 
-    // HMAC-SHA256 verification (Razorpay standard)
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expectedSignature = crypto
       .createHmac("sha256", secret)

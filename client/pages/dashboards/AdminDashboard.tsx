@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Header from "@/components/Header";
 import { useAuthStore } from "@/stores/authStore";
 import { apiUrl } from "@/lib/api";
-import { Users, Bike, ShoppingBag, TrendingUp, Trash2, IndianRupee, Check, PauseCircle, PlayCircle, Pencil } from "lucide-react";
+import { Users, Bike, ShoppingBag, TrendingUp, Trash2, IndianRupee, Check, PauseCircle, PlayCircle, Pencil, Banknote, Bell } from "lucide-react";
+import { initializeSocket, disconnectSocket } from "@/services/socket";
 
 interface Analytics {
   totalUsers: number;
@@ -38,6 +39,7 @@ interface Hotel {
   category: string;
   rating: number;
   isOpen: boolean;
+  razorpayAccountId?: string;
 }
 
 interface Order {
@@ -50,6 +52,28 @@ interface Order {
   createdAt: string;
 }
 
+interface DailyStat {
+  hotelId: number;
+  hotelName: string;
+  upiId: string;
+  orderCount: number;
+  totalCollection: number;
+  hotelPayout: number;
+  platformFee: number;
+}
+
+interface SettlementRequest {
+  id: number;
+  hotelId: number;
+  amount: number;
+  upiId: string;
+  status: string;
+  note: string;
+  createdAt: string;
+  paidAt: string | null;
+  hotel: { name: string; phone: string };
+}
+
 export default function AdminDashboard() {
   const { token } = useAuthStore();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
@@ -57,7 +81,7 @@ export default function AdminDashboard() {
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"analytics" | "orders" | "riders" | "hotels">("analytics");
+  const [activeTab, setActiveTab] = useState<"analytics" | "orders" | "riders" | "hotels" | "settlements">("analytics");
   const [riderForm, setRiderForm] = useState({
     name: "", email: "", phone: "", password: "",
   });
@@ -72,16 +96,37 @@ export default function AdminDashboard() {
   const [deliverySaving, setDeliverySaving] = useState(false);
   const [deliverySaved, setDeliverySaved] = useState(false);
   const [hotelForm, setHotelForm] = useState({
-    name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5",
+    name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5", razorpayAccountId: "",
   });
   const [availableRiders, setAvailableRiders] = useState<Rider[]>([]);
   const [editingRider, setEditingRider] = useState<Rider | null>(null);
   const [editRiderForm, setEditRiderForm] = useState({ name: "", phone: "", password: "" });
   const [editingHotel, setEditingHotel] = useState<Hotel | null>(null);
-  const [editHotelForm, setEditHotelForm] = useState({ name: "", phone: "", location: "", category: "", password: "", rating: "4.5" });
+  const [editHotelForm, setEditHotelForm] = useState({ name: "", phone: "", location: "", category: "", password: "", rating: "4.5", razorpayAccountId: "" });
+  const [dailyStats, setDailyStats] = useState<DailyStat[]>([]);
+  const [pendingSettlements, setPendingSettlements] = useState<SettlementRequest[]>([]);
+  const [allSettlements, setAllSettlements] = useState<SettlementRequest[]>([]);
+  const [settlementNotification, setSettlementNotification] = useState(false);
+
+  const socketRef = useRef(false);
 
   useEffect(() => {
     fetchData();
+    fetchSettlementData();
+
+    if (token && !socketRef.current) {
+      socketRef.current = true;
+      const socket = initializeSocket(token);
+      socket.on("settlementRequest", () => {
+        setSettlementNotification(true);
+        fetchSettlementData();
+      });
+    }
+
+    return () => {
+      disconnectSocket();
+      socketRef.current = false;
+    };
   }, [token]);
 
   const fetchData = async () => {
@@ -126,6 +171,39 @@ export default function AdminDashboard() {
     } finally {
       setAdminUpiSaving(false);
     }
+  };
+
+  const fetchSettlementData = async () => {
+    try {
+      const [statsRes, pendingRes, allRes] = await Promise.all([
+        fetch(apiUrl("/api/admin/settlements/daily-stats"), { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(apiUrl("/api/admin/settlements/pending"), { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(apiUrl("/api/admin/settlements/all"), { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (statsRes.ok) setDailyStats(await statsRes.json());
+      if (pendingRes.ok) setPendingSettlements(await pendingRes.json());
+      if (allRes.ok) setAllSettlements(await allRes.json());
+    } catch (e) {
+      console.error("Error fetching settlement data:", e);
+    }
+  };
+
+  const handleMarkPaid = async (settlementId: number) => {
+    try {
+      const res = await fetch(apiUrl(`/api/admin/settlements/${settlementId}/pay`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ note: `Paid via UPI on ${new Date().toLocaleDateString()}` }),
+      });
+      if (res.ok) fetchSettlementData();
+    } catch (e) {
+      console.error("Error marking settlement paid:", e);
+    }
+  };
+
+  const openUpiPay = (upiId: string, amount: number, name: string) => {
+    const upiUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(name)}&am=${amount.toFixed(2)}&cu=INR&tn=${encodeURIComponent("Settlement payment from Niphad Bites")}`;
+    window.open(upiUrl, "_blank");
   };
 
   const handleSaveDeliverySettings = async () => {
@@ -175,7 +253,7 @@ export default function AdminDashboard() {
         body: JSON.stringify({ ...hotelForm, rating: parseFloat(hotelForm.rating) }),
       });
       if (response.ok) {
-        setHotelForm({ name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5" });
+        setHotelForm({ name: "", email: "", phone: "", password: "", location: "", category: "Fast Food", rating: "4.5", razorpayAccountId: "" });
         fetchData();
       }
     } catch (error) {
@@ -280,17 +358,20 @@ export default function AdminDashboard() {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-8 border-b border-border overflow-x-auto">
-          {(["analytics", "orders", "riders", "hotels"] as const).map((tab) => (
+          {(["analytics", "orders", "riders", "hotels", "settlements"] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-3 font-semibold capitalize border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              onClick={() => { setActiveTab(tab); if (tab === "settlements") setSettlementNotification(false); }}
+              className={`px-6 py-3 font-semibold capitalize border-b-2 -mb-px transition-colors whitespace-nowrap relative ${
                 activeTab === tab
                   ? "text-primary border-primary"
                   : "text-muted-foreground border-transparent"
               }`}
             >
               {tab}
+              {tab === "settlements" && settlementNotification && (
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              )}
             </button>
           ))}
         </div>
@@ -667,6 +748,14 @@ export default function AdminDashboard() {
                     required
                     className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
+                  <input
+                    type="text"
+                    value={hotelForm.razorpayAccountId}
+                    onChange={(e) => setHotelForm({ ...hotelForm, razorpayAccountId: e.target.value })}
+                    placeholder="Razorpay Linked Account ID (acc_XXXXX)"
+                    required
+                    className="px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
                 </div>
                 <button type="submit" className="btn-primary">
                   Create Hotel
@@ -712,7 +801,7 @@ export default function AdminDashboard() {
                               {hotel.isOpen ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
                             </button>
                             <button
-                              onClick={() => { setEditingHotel(hotel); setEditHotelForm({ name: hotel.name, phone: hotel.phone, location: hotel.location, category: hotel.category, password: "", rating: String(hotel.rating) }); }}
+                              onClick={() => { setEditingHotel(hotel); setEditHotelForm({ name: hotel.name, phone: hotel.phone, location: hotel.location, category: hotel.category, password: "", rating: String(hotel.rating), razorpayAccountId: hotel.razorpayAccountId || "" }); }}
                               className="p-1 text-primary hover:bg-primary/10 rounded"
                               title="Edit"
                             >
@@ -731,6 +820,158 @@ export default function AdminDashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Settlements Tab */}
+        {activeTab === "settlements" && (
+          <div className="space-y-8">
+            {/* Today's Collection per Restaurant */}
+            <div className="card-base">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <TrendingUp size={20} className="text-green-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">Today's Collection</h2>
+                    <p className="text-sm text-muted-foreground">Restaurant-wise daily breakdown</p>
+                  </div>
+                </div>
+                <button onClick={fetchSettlementData} className="btn-secondary text-sm py-2 px-4">Refresh</button>
+              </div>
+              {dailyStats.length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">No deliveries today yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-border">
+                      <tr>
+                        <th className="text-left py-2 font-semibold">Restaurant</th>
+                        <th className="text-left py-2 font-semibold">Orders</th>
+                        <th className="text-left py-2 font-semibold">Collection</th>
+                        <th className="text-left py-2 font-semibold">Hotel Payout (83%)</th>
+                        <th className="text-left py-2 font-semibold">Platform (17%)</th>
+                        <th className="text-left py-2 font-semibold">UPI ID</th>
+                        <th className="text-left py-2 font-semibold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyStats.map((stat) => (
+                        <tr key={stat.hotelId} className="border-b border-border hover:bg-secondary">
+                          <td className="py-3 font-semibold">{stat.hotelName}</td>
+                          <td className="py-3">{stat.orderCount}</td>
+                          <td className="py-3 font-semibold">₹{stat.totalCollection.toFixed(0)}</td>
+                          <td className="py-3 text-green-700 font-semibold">₹{stat.hotelPayout.toFixed(0)}</td>
+                          <td className="py-3 text-primary font-semibold">₹{stat.platformFee.toFixed(0)}</td>
+                          <td className="py-3 text-xs">{stat.upiId || "Not set"}</td>
+                          <td className="py-3">
+                            {stat.upiId && (
+                              <button
+                                onClick={() => openUpiPay(stat.upiId, stat.hotelPayout, stat.hotelName)}
+                                className="btn-primary py-1 px-3 text-xs flex items-center gap-1"
+                              >
+                                <Banknote size={14} /> Pay via UPI
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="font-bold bg-secondary/50">
+                        <td className="py-3">Total</td>
+                        <td className="py-3">{dailyStats.reduce((s, d) => s + d.orderCount, 0)}</td>
+                        <td className="py-3">₹{dailyStats.reduce((s, d) => s + d.totalCollection, 0).toFixed(0)}</td>
+                        <td className="py-3 text-green-700">₹{dailyStats.reduce((s, d) => s + d.hotelPayout, 0).toFixed(0)}</td>
+                        <td className="py-3 text-primary">₹{dailyStats.reduce((s, d) => s + d.platformFee, 0).toFixed(0)}</td>
+                        <td className="py-3" colSpan={2}></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Pending Settlement Requests */}
+            <div className="card-base">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                  <Bell size={20} className="text-orange-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">Pending Settlement Requests ({pendingSettlements.length})</h2>
+                  <p className="text-sm text-muted-foreground">Restaurants requesting payment</p>
+                </div>
+              </div>
+              {pendingSettlements.length === 0 ? (
+                <p className="text-center text-muted-foreground py-6">No pending requests.</p>
+              ) : (
+                <div className="space-y-3">
+                  {pendingSettlements.map((s) => (
+                    <div key={s.id} className="p-4 border-2 border-orange-200 bg-orange-50 rounded-xl flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1">
+                        <p className="font-bold text-lg">{s.hotel.name}</p>
+                        <p className="text-sm text-muted-foreground">Amount: <span className="font-semibold text-foreground">₹{s.amount.toFixed(0)}</span></p>
+                        <p className="text-sm text-muted-foreground">UPI: <span className="font-mono text-foreground">{s.upiId}</span></p>
+                        <p className="text-xs text-muted-foreground">Requested: {new Date(s.createdAt).toLocaleString()}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => openUpiPay(s.upiId, s.amount, s.hotel.name)}
+                          className="btn-primary py-2 px-4 text-sm flex items-center gap-1"
+                        >
+                          <Banknote size={14} /> Pay ₹{s.amount.toFixed(0)}
+                        </button>
+                        <button
+                          onClick={() => handleMarkPaid(s.id)}
+                          className="bg-green-600 text-white py-2 px-4 rounded-xl text-sm font-semibold flex items-center gap-1 hover:bg-green-700"
+                        >
+                          <Check size={14} /> Mark Paid
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* All Settlements History */}
+            <div className="card-base">
+              <h2 className="text-xl font-bold mb-4">Settlement History</h2>
+              {allSettlements.length === 0 ? (
+                <p className="text-center text-muted-foreground py-6">No settlements yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-border">
+                      <tr>
+                        <th className="text-left py-2 font-semibold">Restaurant</th>
+                        <th className="text-left py-2 font-semibold">Amount</th>
+                        <th className="text-left py-2 font-semibold">UPI</th>
+                        <th className="text-left py-2 font-semibold">Status</th>
+                        <th className="text-left py-2 font-semibold">Requested</th>
+                        <th className="text-left py-2 font-semibold">Paid At</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allSettlements.map((s) => (
+                        <tr key={s.id} className="border-b border-border hover:bg-secondary">
+                          <td className="py-2">{s.hotel.name}</td>
+                          <td className="py-2 font-semibold">₹{s.amount.toFixed(0)}</td>
+                          <td className="py-2 font-mono text-xs">{s.upiId}</td>
+                          <td className="py-2">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              s.status === "paid" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                            }`}>{s.status === "paid" ? "Paid" : "Pending"}</span>
+                          </td>
+                          <td className="py-2 text-xs">{new Date(s.createdAt).toLocaleDateString()}</td>
+                          <td className="py-2 text-xs">{s.paidAt ? new Date(s.paidAt).toLocaleDateString() : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -792,6 +1033,9 @@ export default function AdminDashboard() {
                 className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
               <input type="password" placeholder="New Password (leave blank to keep current)" value={editHotelForm.password}
                 onChange={(e) => setEditHotelForm({ ...editHotelForm, password: e.target.value })}
+                className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
+              <input type="text" placeholder="Razorpay Linked Account ID (acc_XXXXX)" value={editHotelForm.razorpayAccountId}
+                onChange={(e) => setEditHotelForm({ ...editHotelForm, razorpayAccountId: e.target.value })}
                 className="w-full px-4 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary" />
               <div className="flex gap-3 pt-2">
                 <button type="submit" className="btn-primary flex-1 py-2">Save Changes</button>

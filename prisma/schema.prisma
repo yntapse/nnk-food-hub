@@ -45,12 +45,27 @@ model Hotel {
   rating        Float      @default(4.5)
   totalOrders   Int        @default(0)
   totalEarnings Float      @default(0)
-  isOpen        Boolean    @default(true)
-  upiId         String     @default("")
-  menuItems     MenuItem[]
-  orders        Order[]
+  isOpen            Boolean    @default(true)
+  upiId             String     @default("")
+  razorpayAccountId String     @default("")
+  menuItems         MenuItem[]
+  orders            Order[]
+  settlements       SettlementRequest[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+}
+
+model SettlementRequest {
+  id        Int      @id @default(autoincrement())
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  hotelId   Int
+  amount    Float
+  upiId     String
+  status    String   @default("pending") // pending | paid
+  paidAt    DateTime?
+  note      String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model MenuItem {
@@ -94,6 +109,11 @@ model Order {
   deliveryFee     Float    @default(0)
   deliveryAddress String
   paymentMethod   String   @default("COD")
+  paymentId       String   @default("")
+  razorpayOrderId String   @default("")
+  platformFee     Float    @default(0)
+  hotelPayout     Float    @default(0)
+  transferId      String   @default("")
   customerPhone   String   @default("")
   status          String   @default("Placed")
   deliveryOtp     String   @default("")

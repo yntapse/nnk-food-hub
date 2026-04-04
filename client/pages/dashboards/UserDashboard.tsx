@@ -24,6 +24,12 @@ interface AddressFormState {
   addressLabel: AddressLabel;
 }
 
+interface LocationSuggestion {
+  display_name: string;
+  lat: string;
+  lon: string;
+}
+
 export default function UserDashboard() {
   const { user, token, updateAddress } = useAuthStore();
   const navigate = useNavigate();
@@ -40,6 +46,9 @@ export default function UserDashboard() {
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [previewQuery, setPreviewQuery] = useState("");
+  const [locationSearchQuery, setLocationSearchQuery] = useState("");
+  const [searchingLocation, setSearchingLocation] = useState(false);
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
 
   useEffect(() => {
     fetchOrders();
@@ -110,8 +119,68 @@ export default function UserDashboard() {
     const parsed = parseExistingAddress(user?.address);
     setAddressForm(parsed);
     setPreviewQuery(parsed.locationText || user?.address || "");
+    setLocationSearchQuery(parsed.locationText || "");
+    setLocationSuggestions([]);
     setLocationError("");
     setEditingAddress(true);
+  };
+
+  useEffect(() => {
+    if (!editingAddress) return;
+    const trimmedQuery = locationSearchQuery.trim();
+    if (trimmedQuery.length < 3) {
+      setLocationSuggestions([]);
+      setSearchingLocation(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSearchingLocation(true);
+
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&countrycodes=in&q=${encodeURIComponent(trimmedQuery)}`,
+          {
+            signal: controller.signal,
+            headers: {
+              Accept: "application/json",
+            },
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch location suggestions");
+        }
+
+        const results = (await response.json()) as LocationSuggestion[];
+        setLocationSuggestions(results);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        console.error("Location search failed:", error);
+        setLocationSuggestions([]);
+      } finally {
+        if (!controller.signal.aborted) {
+          setSearchingLocation(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, [editingAddress, locationSearchQuery]);
+
+  const handleSelectSuggestion = (suggestion: LocationSuggestion) => {
+    setAddressForm((current) => ({
+      ...current,
+      locationText: suggestion.display_name,
+    }));
+    setLocationSearchQuery(suggestion.display_name);
+    setPreviewQuery(`${suggestion.lat},${suggestion.lon}`);
+    setLocationSuggestions([]);
+    setLocationError("");
   };
 
   const handleUseCurrentLocation = async () => {
@@ -142,6 +211,8 @@ export default function UserDashboard() {
             ...current,
             locationText: resolvedAddress,
           }));
+          setLocationSearchQuery(resolvedAddress);
+          setLocationSuggestions([]);
           setPreviewQuery(`${latitude},${longitude}`);
         } catch (error) {
           console.error("Reverse geocoding failed:", error);
@@ -229,12 +300,47 @@ export default function UserDashboard() {
                   </div>
 
                   <div>
+                    <label className="text-xs font-semibold text-muted-foreground">Search Location</label>
+                    <div className="mt-1 relative">
+                      <input
+                        type="text"
+                        value={locationSearchQuery}
+                        onChange={(e) => {
+                          setLocationSearchQuery(e.target.value);
+                          updateAddressField("locationText", e.target.value);
+                          setPreviewQuery(e.target.value);
+                        }}
+                        placeholder="Search area, street, landmark"
+                        className="w-full px-4 py-3 border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-background"
+                      />
+                      {searchingLocation && (
+                        <p className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Searching...</p>
+                      )}
+                    </div>
+                    {!!locationSuggestions.length && (
+                      <div className="mt-2 rounded-xl border border-border bg-background shadow-sm overflow-hidden">
+                        {locationSuggestions.map((suggestion) => (
+                          <button
+                            key={`${suggestion.lat}-${suggestion.lon}-${suggestion.display_name}`}
+                            type="button"
+                            onClick={() => handleSelectSuggestion(suggestion)}
+                            className="w-full text-left px-4 py-3 text-sm hover:bg-secondary transition-colors border-b border-border last:border-b-0"
+                          >
+                            {suggestion.display_name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
                     <label className="text-xs font-semibold text-muted-foreground">Area / Full Location</label>
                     <textarea
                       rows={3}
                       value={addressForm.locationText}
                       onChange={(e) => {
                         updateAddressField("locationText", e.target.value);
+                        setLocationSearchQuery(e.target.value);
                         setPreviewQuery(e.target.value);
                       }}
                       placeholder="Search or use current location to fill area, street and city"

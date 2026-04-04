@@ -40,6 +40,30 @@ interface DeliveryFeeSettings {
   firstOrderFree: boolean;
 }
 
+const NIPHAD_BUS_STAND = {
+  latitude: 20.0827,
+  longitude: 74.1097,
+};
+const MAX_ORDER_DISTANCE_KM = 8;
+
+function toRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+function getDistanceInKm(fromLatitude: number, fromLongitude: number, toLatitude: number, toLongitude: number): number {
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(toLatitude - fromLatitude);
+  const deltaLon = toRadians(toLongitude - fromLongitude);
+  const a =
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(toRadians(fromLatitude)) *
+      Math.cos(toRadians(toLatitude)) *
+      Math.sin(deltaLon / 2) *
+      Math.sin(deltaLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
 export default function Cart() {
   const navigate = useNavigate();
   const { items, hotelName, hotelId, removeItem, updateQuantity, clearCart, getTotal } = useCartStore();
@@ -47,8 +71,13 @@ export default function Cart() {
   const [loading, setLoading] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentId, setPaymentId] = useState("");
+  const [razorpayOrderId, setRazorpayOrderId] = useState("");
+  const [transferId, setTransferId] = useState("");
   const [orderCount, setOrderCount] = useState<number | null>(null);
   const [deliverySettings, setDeliverySettings] = useState<DeliveryFeeSettings | null>(null);
+  const [deliveryCoords, setDeliveryCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [geocodeError, setGeocodeError] = useState("");
   const savedAddress = user?.address || "";
   const [formData, setFormData] = useState({
     customerPhone: user?.phone || "",
@@ -94,6 +123,70 @@ export default function Cart() {
     document.body.appendChild(script);
   }, []);
 
+  // Geocode the saved delivery address to get coordinates for the 8 km distance check
+  useEffect(() => {
+    if (!savedAddress) {
+      setDeliveryCoords(null);
+      setGeocoding(false);
+      return;
+    }
+
+    // Extract the geocodable location part (last segment of "Home | details | location")
+    const geocodableText = savedAddress.includes(" | ")
+      ? (savedAddress.split(" | ").pop() ?? savedAddress).trim()
+      : savedAddress.trim();
+
+    if (!geocodableText) {
+      setDeliveryCoords(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setGeocoding(true);
+    setGeocodeError("");
+
+    const fetchCoords = async () => {
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(geocodableText)}`,
+          { signal: controller.signal, headers: { Accept: "application/json" } },
+        );
+        if (!response.ok) throw new Error("Geocode request failed");
+        const results = (await response.json()) as Array<{ lat: string; lon: string }>;
+        if (results.length > 0) {
+          setDeliveryCoords({
+            latitude: parseFloat(results[0].lat),
+            longitude: parseFloat(results[0].lon),
+          });
+          setGeocodeError("");
+        } else {
+          setDeliveryCoords(null);
+          setGeocodeError("Could not verify delivery address location. Please update your address.");
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setDeliveryCoords(null);
+        setGeocodeError("Address location check failed. Please try again.");
+      } finally {
+        if (!controller.signal.aborted) setGeocoding(false);
+      }
+    };
+
+    fetchCoords();
+    return () => controller.abort();
+  }, [savedAddress]);
+
+  // Distance of the delivery address (not GPS) from Niphad Bus Stand
+  const distanceFromNiphadBusStand = deliveryCoords
+    ? getDistanceInKm(
+      NIPHAD_BUS_STAND.latitude,
+      NIPHAD_BUS_STAND.longitude,
+      deliveryCoords.latitude,
+      deliveryCoords.longitude,
+    )
+    : null;
+  const isOutsideServiceArea = distanceFromNiphadBusStand !== null && distanceFromNiphadBusStand > MAX_ORDER_DISTANCE_KM;
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -103,6 +196,12 @@ export default function Cart() {
     if (!user || !hotelId) { navigate("/login"); return; }
     if (!savedAddress) { alert("Please add a delivery address in your profile before paying."); navigate("/dashboard"); return; }
     if (!formData.customerPhone) { alert("Please enter your phone number."); return; }
+    if (geocoding) { alert("Verifying your delivery address location, please wait."); return; }
+    if (!deliveryCoords) { alert("Could not verify delivery address location. Please update your address."); return; }
+    if (isOutsideServiceArea) {
+      alert(`Your delivery address is ${distanceFromNiphadBusStand?.toFixed(2)} km from Niphad Bus Stand. Ordering is only available within ${MAX_ORDER_DISTANCE_KM} km.`);
+      return;
+    }
     if (!window.Razorpay) { alert("Payment SDK not loaded yet. Please refresh."); return; }
 
     setPaymentLoading(true);
@@ -141,8 +240,10 @@ export default function Cart() {
             alert("Payment verification failed. Contact support with payment ID: " + response.razorpay_payment_id);
             return;
           }
-          // Step 3 — Payment verified, store paymentId to unlock Place Order
+          const verifyData = await verifyRes.json();
           setPaymentId(response.razorpay_payment_id);
+          setRazorpayOrderId(response.razorpay_order_id);
+          setTransferId(verifyData.transferId || "");
         },
         prefill: {
           name: user.name,
@@ -171,6 +272,11 @@ export default function Cart() {
     if (!user || !hotelId) { navigate("/login"); return; }
     if (!savedAddress) { alert("Please add a delivery address in your profile."); navigate("/dashboard"); return; }
     if (!paymentId) { alert("Please complete the payment first."); return; }
+    if (geocoding || !deliveryCoords) { alert("Could not verify delivery address location. Please update your address."); return; }
+    if (isOutsideServiceArea) {
+      alert(`Ordering is allowed only within ${MAX_ORDER_DISTANCE_KM} km of Niphad Bus Stand. Your delivery address is ${distanceFromNiphadBusStand?.toFixed(2)} km away.`);
+      return;
+    }
     setLoading(true);
 
     try {
@@ -185,7 +291,11 @@ export default function Cart() {
         deliveryAddress: savedAddress,
         paymentMethod: "UPI",
         paymentId,
+        razorpayOrderId,
+        transferId,
         customerPhone: formData.customerPhone,
+        userLatitude: deliveryCoords!.latitude,
+        userLongitude: deliveryCoords!.longitude,
       };
 
       const response = await fetch(apiUrl("/api/orders"), {
@@ -312,6 +422,16 @@ export default function Cart() {
 
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
+                  <span className="text-muted-foreground">Service Radius</span>
+                  <span className="font-semibold">Within {MAX_ORDER_DISTANCE_KM} km</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Delivery Address</span>
+                  <span className={`font-semibold text-right max-w-[140px] truncate ${isOutsideServiceArea ? "text-red-600" : geocoding ? "text-muted-foreground" : deliveryCoords ? "text-green-600" : "text-amber-600"}`}>
+                    {geocoding ? "Checking..." : distanceFromNiphadBusStand !== null ? `${distanceFromNiphadBusStand.toFixed(2)} km away` : "Not verified"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
                   <span className="text-muted-foreground">Item Total</span>
                   <span className="font-semibold">₹{subtotal}</span>
                 </div>
@@ -337,6 +457,11 @@ export default function Cart() {
 
               {/* Checkout form */}
               <form onSubmit={handlePlaceOrder} className="space-y-4 pt-2">
+                {(geocodeError || isOutsideServiceArea) && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
+                    {geocodeError || `Your delivery address is ${distanceFromNiphadBusStand?.toFixed(1)} km from Niphad Bus Stand. Delivery is only available within ${MAX_ORDER_DISTANCE_KM} km. Please update your address.`}
+                  </div>
+                )}
                 <div>
                   <label className="flex items-center gap-2 text-sm font-semibold mb-2">
                     <MapPin size={14} className="text-primary" /> Delivery Address
@@ -386,7 +511,7 @@ export default function Cart() {
                     <button
                       type="button"
                       onClick={handleOpenRazorpay}
-                      disabled={paymentLoading || !savedAddress || orderCount === null || deliverySettings === null}
+                      disabled={paymentLoading || !savedAddress || orderCount === null || deliverySettings === null || geocoding || !deliveryCoords || isOutsideServiceArea}
                       className="btn-primary w-full py-4 text-base rounded-2xl shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       <IndianRupee size={18} />

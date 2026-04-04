@@ -1,29 +1,20 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { apiUrl } from "@/lib/api";
 import Header from "@/components/Header";
 import { useAuthStore } from "@/stores/authStore";
-import { Mail, Lock, ChevronDown } from "lucide-react";
-
-const ROLE_OPTIONS = [
-  { value: "user", label: "Customer", emoji: "👤" },
-  { value: "rider", label: "Rider", emoji: "🏍️" },
-  { value: "hotel", label: "Restaurant", emoji: "🍽️" },
-  { value: "admin", label: "Admin", emoji: "⚙️" },
-] as const;
+import { Phone, Lock, CheckCircle } from "lucide-react";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { setUser } = useAuthStore();
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    role: "user" as "user" | "rider" | "hotel" | "admin",
-  });
+  const successMessage = (location.state as { successMessage?: string } | null)?.successMessage ?? "";
+  const [formData, setFormData] = useState({ identifier: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -35,7 +26,7 @@ export default function Login() {
       const response = await fetch(apiUrl("/api/auth/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ identifier: formData.identifier.trim(), password: formData.password }),
       });
       if (!response.ok) {
         const data = await response.json();
@@ -68,44 +59,33 @@ export default function Login() {
           </div>
 
           <div className="card-base !p-8">
+            {successMessage && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 text-green-700 text-sm p-3 rounded-xl mb-5 animate-fade-in">
+                <CheckCircle size={15} className="shrink-0" />
+                {successMessage}
+              </div>
+            )}
             {error && (
               <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm p-3 rounded-xl mb-5 animate-fade-in">
                 {error}
               </div>
             )}
 
-            {/* Role tabs */}
-            <div className="grid grid-cols-4 gap-2 mb-6">
-              {ROLE_OPTIONS.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, role: r.value })}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl text-xs font-semibold transition-all
-                    ${formData.role === r.value
-                      ? "bg-primary/10 text-primary border-2 border-primary"
-                      : "bg-secondary border-2 border-transparent hover:border-primary/30"
-                    }`}
-                >
-                  <span className="text-lg">{r.emoji}</span>
-                  {r.label}
-                </button>
-              ))}
-            </div>
-
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold mb-2">Email</label>
+                <label className="block text-sm font-semibold mb-2">
+                  Phone Number or Email
+                </label>
                 <div className="relative">
-                  <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Phone size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
+                    type="text"
+                    name="identifier"
+                    value={formData.identifier}
                     onChange={handleChange}
                     required
                     className="input-base pl-10"
-                    placeholder="you@example.com"
+                    placeholder="Enter mobile number or email"
                   />
                 </div>
               </div>
@@ -124,6 +104,13 @@ export default function Login() {
                     placeholder="••••••••"
                   />
                 </div>
+              </div>
+
+              {/* Forgot password */}
+              <div className="text-right -mt-1">
+                <Link to="/forgot-password" className="text-xs text-primary font-semibold hover:underline">
+                  Forgot password?
+                </Link>
               </div>
 
               <button

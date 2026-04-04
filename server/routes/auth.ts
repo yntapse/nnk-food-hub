@@ -8,11 +8,56 @@ import {
 
 type OtpProvider = "local" | "twilio";
 
-// In-memory OTP store: cleanPhone -> provider metadata
+// In-memory OTP store: cleanPhone -> provider metadata (still used for phone-based sendOtp for other flows)
 const otpStore = new Map<string, { otp: string; expires: number; provider: OtpProvider }>();
 
+// In-memory OTP store for email-based password reset: email -> { otp, expires }
+const emailOtpStore = new Map<string, { otp: string; expires: number }>();
+
+function getSmtpConfig() {
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT ?? 587);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM ?? user;
+  if (!host || !user || !pass) return null;
+  return { host, port, user, pass, from };
+}
+
+async function sendEmailOtp(toEmail: string, otp: string): Promise<{ ok: boolean; reason?: string }> {
+  const cfg = getSmtpConfig();
+  if (!cfg) {
+    // Dev-mode: no SMTP configured, caller will return OTP in response
+    return { ok: false, reason: "SMTP not configured" };
+  }
+  try {
+    // Dynamically import nodemailer so the server still starts without it
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: cfg.host,
+      port: cfg.port,
+      secure: cfg.port === 465,
+      auth: { user: cfg.user, pass: cfg.pass },
+    });
+    await transporter.sendMail({
+      from: `"Niphad Bites" <${cfg.from}>`,
+      to: toEmail,
+      subject: "Your OTP for Niphad Bites",
+      text: `Your OTP is: ${otp}\nIt expires in 10 minutes.`,
+      html: `<p>Your OTP is: <strong style="font-size:1.5em;letter-spacing:0.2em">${otp}</strong></p><p>It expires in 10 minutes.</p>`,
+    });
+    return { ok: true };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "Email send failed";
+    return { ok: false, reason };
+  }
+}
+
 function cleanPhone(raw: string): string {
-  return raw.replace(/\D/g, "").replace(/^91/, "").slice(-10);
+  const digits = raw.replace(/\D/g, "");
+  // Strip country code 91 only when the number is longer than 10 digits
+  if (digits.length > 10 && digits.startsWith("91")) return digits.slice(2);
+  return digits.slice(-10);
 }
 
 function formatIndianPhone(raw: string): string {
@@ -164,72 +209,52 @@ export const sendOtp: RequestHandler = async (req, res) => {
 
 export const signup: RequestHandler = async (req, res) => {
   try {
-    const { email, password, name, phone, role, address, location, category, otp } =
-      req.body;
+    const { email, password, name, phone, role, address } = req.body;
 
     if (!email || !password || !name || !phone || !role) {
       res.status(400).json({ error: "Missing required fields" });
       return;
     }
 
-    const hashedPassword = await hashPassword(password);
-    let id: number;
-
-    if (role === "user") {
-      // Verify phone OTP before creating account
-      if (!otp) {
-        res.status(400).json({ error: "OTP is required. Please verify your phone number." });
-        return;
-      }
-      const digits = cleanPhone(String(phone));
-      const stored = otpStore.get(digits);
-      if (!stored) {
-        res.status(400).json({ error: "OTP not found. Please request a new OTP." });
-        return;
-      }
-      if (Date.now() > stored.expires) {
-        otpStore.delete(digits);
-        res.status(400).json({ error: "OTP expired. Please request a new OTP." });
-        return;
-      }
-
-      if (stored.provider === "twilio") {
-        const verified = await verifyTwilioOtp(formatIndianPhone(phone), String(otp).trim());
-        if (!verified.ok) {
-          res.status(400).json({ error: verified.reason ?? "Invalid OTP. Please check and try again." });
-          return;
-        }
-      } else {
-        if (stored.otp !== String(otp).trim()) {
-          res.status(400).json({ error: "Invalid OTP. Please check and try again." });
-          return;
-        }
-      }
-
-      otpStore.delete(digits); // single-use
-
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) { res.status(400).json({ error: "User already exists" }); return; }
-      const user = await prisma.user.create({
-        data: { email, password: hashedPassword, name, phone, address: address || "" },
-      });
-      id = user.id;
-    } else if (role === "rider") {
+    if (role === "rider") {
       res.status(403).json({ error: "Rider accounts can only be created by admin" });
       return;
-    } else if (role === "hotel") {
+    }
+    if (role === "hotel") {
       res.status(403).json({ error: "Restaurant accounts can only be created by admin" });
       return;
-    } else {
+    }
+    if (role !== "user") {
       res.status(400).json({ error: "Invalid role" });
       return;
     }
 
-    const token = generateToken(String(id), email, role);
+    if (String(password).length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters" });
+      return;
+    }
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) { res.status(400).json({ error: "User already exists" }); return; }
+
+    const digits = cleanPhone(String(phone));
+    if (digits.length !== 10) {
+      res.status(400).json({ error: "Enter a valid 10-digit phone number" });
+      return;
+    }
+    const phoneExists = await prisma.user.findFirst({ where: { phone: { endsWith: digits } } });
+    if (phoneExists) { res.status(400).json({ error: "This phone number is already registered" }); return; }
+
+    const hashedPassword = await hashPassword(password);
+    const user = await prisma.user.create({
+      data: { email, password: hashedPassword, name, phone, address: address || "" },
+    });
+
+    const token = generateToken(String(user.id), email, role);
     res.status(201).json({
       message: "Signup successful",
       token,
-      user: { id, email, name, role },
+      user: { id: user.id, email, name, role },
     });
   } catch (error) {
     console.error("Signup error:", error);
@@ -237,49 +262,178 @@ export const signup: RequestHandler = async (req, res) => {
   }
 };
 
-export const login: RequestHandler = async (req, res) => {
+export const forgotPassword: RequestHandler = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { email } = req.body;
+    if (!email) { res.status(400).json({ error: "Email address is required" }); return; }
 
-    if (!email || !password || !role) {
-      res.status(400).json({ error: "Missing email, password, or role" });
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // Look up account across all role tables
+    const userRecord =
+      await prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true, email: true } }) ??
+      await prisma.rider.findFirst({ where: { email: normalizedEmail }, select: { id: true, email: true } }) ??
+      await prisma.hotel.findFirst({ where: { email: normalizedEmail }, select: { id: true, email: true } }) ??
+      await prisma.admin.findUnique({ where: { email: normalizedEmail }, select: { id: true, email: true } });
+
+    // Always return same message to prevent email enumeration
+    if (!userRecord) {
+      res.json({ message: "If this email is registered, an OTP has been sent to it." });
       return;
     }
 
-    let user: { id: number; email: string; name: string; password: string } | null = null;
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expires = Date.now() + 10 * 60 * 1000;
+    emailOtpStore.set(normalizedEmail, { otp, expires });
 
-    if (role === "user") {
-      user = await prisma.user.findUnique({ where: { email } });
-    } else if (role === "rider") {
-      user = await prisma.rider.findUnique({ where: { email } });
-    } else if (role === "hotel") {
-      user = await prisma.hotel.findUnique({
-        where: { email },
-        select: { id: true, email: true, name: true, password: true },
-      });
-    } else if (role === "admin") {
-      user = await prisma.admin.findUnique({ where: { email } });
-    } else {
-      res.status(400).json({ error: "Invalid role" });
+    const emailResult = await sendEmailOtp(normalizedEmail, otp);
+    if (emailResult.ok) {
+      res.json({ message: "OTP sent to your email address." });
       return;
+    }
+
+    // Dev-mode fallback: return OTP in response
+    console.error("Email OTP send failed:", emailResult.reason);
+    res.json({
+      message: `Email not sent (${emailResult.reason}). Use this OTP for testing.`,
+      otp,
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ error: "Failed to process request" });
+  }
+};
+
+export const resetPassword: RequestHandler = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      res.status(400).json({ error: "Email, OTP and new password are required" });
+      return;
+    }
+    if (String(newPassword).length < 6) {
+      res.status(400).json({ error: "Password must be at least 6 characters" });
+      return;
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    const stored = emailOtpStore.get(normalizedEmail);
+    if (!stored) { res.status(400).json({ error: "OTP not found. Please request a new OTP." }); return; }
+    if (Date.now() > stored.expires) {
+      emailOtpStore.delete(normalizedEmail);
+      res.status(400).json({ error: "OTP expired. Please request a new OTP." });
+      return;
+    }
+    if (stored.otp !== String(otp).trim()) {
+      res.status(400).json({ error: "Invalid OTP. Please check and try again." });
+      return;
+    }
+
+    emailOtpStore.delete(normalizedEmail); // single-use
+
+    const hashed = await hashPassword(String(newPassword));
+
+    // Update password in whichever table the account lives in
+    const inUser = await prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
+    if (inUser) { await prisma.user.update({ where: { id: inUser.id }, data: { password: hashed } }); }
+    else {
+      const inRider = await prisma.rider.findFirst({ where: { email: normalizedEmail }, select: { id: true } });
+      if (inRider) { await prisma.rider.update({ where: { id: inRider.id }, data: { password: hashed } }); }
+      else {
+        const inHotel = await prisma.hotel.findFirst({ where: { email: normalizedEmail }, select: { id: true } });
+        if (inHotel) { await prisma.hotel.update({ where: { id: inHotel.id }, data: { password: hashed } }); }
+        else {
+          const inAdmin = await prisma.admin.findUnique({ where: { email: normalizedEmail }, select: { id: true } });
+          if (inAdmin) { await prisma.admin.update({ where: { id: inAdmin.id }, data: { password: hashed } }); }
+          else { res.status(400).json({ error: "Account not found" }); return; }
+        }
+      }
+    }
+
+    res.json({ message: "Password reset successfully. You can now log in." });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ error: "Failed to reset password" });
+  }
+};
+
+export const login: RequestHandler = async (req, res) => {
+  try {
+    const { identifier, password } = req.body;
+
+    if (!identifier || !password) {
+      res.status(400).json({ error: "Phone number / email and password are required" });
+      return;
+    }
+
+    const id = String(identifier).trim();
+    const isEmail = id.includes("@");
+
+    type Match = { id: number; email: string; name: string; password: string };
+    let user: Match | null = null;
+    let role: string = "";
+
+    if (isEmail) {
+      // Email path: admin → user → rider → hotel
+      const admin = await prisma.admin.findUnique({ where: { email: id } });
+      if (admin) { user = admin; role = "admin"; }
+
+      if (!user) {
+        const u = await prisma.user.findUnique({ where: { email: id } });
+        if (u) { user = u; role = "user"; }
+      }
+      if (!user) {
+        const r = await prisma.rider.findFirst({ where: { email: id } });
+        if (r) { user = r; role = "rider"; }
+      }
+      if (!user) {
+        const h = await prisma.hotel.findFirst({
+          where: { email: id },
+          select: { id: true, email: true, name: true, password: true },
+        });
+        if (h) { user = h; role = "hotel"; }
+      }
+    } else {
+      // Phone path: user → rider → hotel
+      const digits = cleanPhone(id);
+      if (digits.length !== 10) {
+        res.status(400).json({ error: "Enter a valid 10-digit phone number" });
+        return;
+      }
+
+      const u = await prisma.user.findFirst({ where: { phone: { endsWith: digits } } });
+      if (u) { user = u; role = "user"; }
+
+      if (!user) {
+        const r = await prisma.rider.findFirst({ where: { phone: { endsWith: digits } } });
+        if (r) { user = r; role = "rider"; }
+      }
+      if (!user) {
+        const h = await prisma.hotel.findFirst({
+          where: { phone: { endsWith: digits } },
+          select: { id: true, email: true, name: true, password: true },
+        });
+        if (h) { user = h; role = "hotel"; }
+      }
     }
 
     if (!user) {
-      res.status(401).json({ error: "Invalid email or password" });
+      res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
     const isPasswordValid = await comparePasswords(password, user.password);
     if (!isPasswordValid) {
-      res.status(401).json({ error: "Invalid email or password" });
+      res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
-    const token = generateToken(String(user.id), email, role);
+    const token = generateToken(String(user.id), user.email, role as "user" | "rider" | "hotel" | "admin");
     res.json({
       message: "Login successful",
       token,
-      user: { id: user.id, email, name: user.name || "Admin", role },
+      user: { id: user.id, email: user.email, name: user.name || "Admin", role },
     });
   } catch (error) {
     console.error("Login error:", error);

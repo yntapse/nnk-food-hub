@@ -2,11 +2,37 @@ import { RequestHandler } from "express";
 import { prisma } from "../db";
 import { DeliveryFeeError } from "../utils/delivery-fee";
 import { getOrderPricing } from "../utils/order-pricing";
+import { MAX_ORDER_DISTANCE_KM, validateDeliveryDistance } from "../utils/location-validation";
+
+const PLATFORM_FEE_PERCENT = 17;
 
 export const createOrder: RequestHandler = async (req, res) => {
   try {
     if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
-    const { hotelId, items, deliveryAddress, paymentMethod, customerPhone } = req.body;
+    const { hotelId, items, deliveryAddress, paymentMethod, paymentId, razorpayOrderId, transferId, customerPhone, userLatitude, userLongitude } = req.body;
+
+    // Payment is mandatory — no COD allowed
+    if (!paymentId || !razorpayOrderId) {
+      res.status(400).json({ error: "Payment is required to place an order." });
+      return;
+    }
+
+    const latitude = Number(userLatitude);
+    const longitude = Number(userLongitude);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      res.status(400).json({
+        error: "Location is required to place an order. Please enable location access.",
+      });
+      return;
+    }
+
+    const distanceCheck = validateDeliveryDistance(latitude, longitude);
+    if (!distanceCheck.allowed) {
+      res.status(400).json({
+        error: `Ordering is available only within ${MAX_ORDER_DISTANCE_KM} km of Niphad Bus Stand. Your location is ${distanceCheck.distanceKm.toFixed(2)} km away.`,
+      });
+      return;
+    }
 
     const parsedHotelId = parseInt(hotelId);
     const hotel = await prisma.hotel.findUnique({
@@ -19,6 +45,9 @@ export const createOrder: RequestHandler = async (req, res) => {
 
     const pricing = await getOrderPricing(parseInt(req.user.id), parsedHotelId, items);
 
+    const platformFee = Math.round(pricing.totalPrice * PLATFORM_FEE_PERCENT) / 100;
+    const hotelPayout = Math.round(pricing.totalPrice * (100 - PLATFORM_FEE_PERCENT)) / 100;
+
     const deliveryOtp = Math.floor(1000 + Math.random() * 9000).toString();
 
     const order = await prisma.order.create({
@@ -30,7 +59,12 @@ export const createOrder: RequestHandler = async (req, res) => {
         itemsPrice: pricing.itemsPrice,
         deliveryFee: pricing.deliveryFee,
         deliveryAddress,
-        paymentMethod,
+        paymentMethod: paymentMethod || "UPI",
+        paymentId: paymentId || "",
+        razorpayOrderId: razorpayOrderId || "",
+        platformFee,
+        hotelPayout,
+        transferId: transferId || "",
         customerPhone,
         status: "Placed",
         deliveryOtp,

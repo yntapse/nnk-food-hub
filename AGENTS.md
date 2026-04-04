@@ -165,12 +165,6 @@ const data: MyRouteResponse = await response.json();
 
 
 
-
-
-
-
-
-
 # Admin	Super Admin	admin@foodhub.local	Admin@123
 # User	Ravi Kumar	ravi@example.com	User@123
 # User	Priya Sharma	priya@example.com	User@123

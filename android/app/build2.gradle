@@ -1,0 +1,17 @@
+android {
+    ...
+    signingConfigs {
+        release {
+            storeFile file('my-release-key.jks') // Path to your keystore
+            storePassword 'your-store-password'
+            keyAlias 'your-key-alias' keyPassword 'your-key-password'
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release // Link the signing config here
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}

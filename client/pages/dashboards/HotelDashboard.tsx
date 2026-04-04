@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import Header from "@/components/Header";
 import { useAuthStore } from "@/stores/authStore";
 import { apiUrl } from "@/lib/api";
-import { ShoppingBag, UtensilsCrossed, TrendingUp, Bell, IndianRupee, Check, ImagePlus, Pencil, Trash2, ChevronDown, ChevronUp, ToggleLeft, ToggleRight } from "lucide-react";
+import { ShoppingBag, UtensilsCrossed, TrendingUp, Bell, IndianRupee, Check, ImagePlus, Pencil, Trash2, ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Banknote, Clock } from "lucide-react";
 import { initializeSocket, disconnectSocket } from "@/services/socket";
 
 interface Order {
@@ -57,11 +57,17 @@ export default function HotelDashboard() {
   const [upiId, setUpiId] = useState("");
   const [upiSaving, setUpiSaving] = useState(false);
   const [upiSaved, setUpiSaved] = useState(false);
+  const [earnings, setEarnings] = useState<{ today: { orders: number; earnings: number }; week: { orders: number; earnings: number }; total: { orders: number; earnings: number }; pendingSettlement: number; paidSettlement: number } | null>(null);
+  const [settlementHistory, setSettlementHistory] = useState<Array<{ id: number; amount: number; status: string; upiId: string; createdAt: string; paidAt: string | null }>>([]);
+  const [settlementRequesting, setSettlementRequesting] = useState(false);
+  const [settlementMsg, setSettlementMsg] = useState("");
 
   useEffect(() => {
     fetchOrders();
     fetchUpiId();
     fetchMenuItems();
+    fetchEarnings();
+    fetchSettlementHistory();
 
     // Set up socket for real-time order notifications
     if (token && !socketRef.current) {
@@ -71,6 +77,10 @@ export default function HotelDashboard() {
         setNewOrderAlert(true);
         fetchOrders();
         startBeeping();
+      });
+      socket.on("settlementPaid", () => {
+        fetchEarnings();
+        fetchSettlementHistory();
       });
     }
 
@@ -128,6 +138,52 @@ export default function HotelDashboard() {
       console.error("Error saving UPI:", e);
     } finally {
       setUpiSaving(false);
+    }
+  };
+
+  const fetchEarnings = async () => {
+    try {
+      const res = await fetch(apiUrl("/api/hotel/settlements/earnings"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setEarnings(await res.json());
+    } catch (e) {
+      console.error("Error fetching earnings:", e);
+    }
+  };
+
+  const fetchSettlementHistory = async () => {
+    try {
+      const res = await fetch(apiUrl("/api/hotel/settlements/history"), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setSettlementHistory(await res.json());
+    } catch (e) {
+      console.error("Error fetching settlement history:", e);
+    }
+  };
+
+  const handleRequestSettlement = async () => {
+    setSettlementRequesting(true);
+    setSettlementMsg("");
+    try {
+      const res = await fetch(apiUrl("/api/hotel/settlements/request"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSettlementMsg("Settlement request sent to admin!");
+        fetchEarnings();
+        fetchSettlementHistory();
+      } else {
+        setSettlementMsg(data.error || "Failed to request settlement");
+      }
+    } catch (e) {
+      setSettlementMsg("Failed to request settlement");
+    } finally {
+      setSettlementRequesting(false);
+      setTimeout(() => setSettlementMsg(""), 5000);
     }
   };
 
@@ -421,6 +477,83 @@ export default function HotelDashboard() {
             <p className="text-sm text-green-600 mt-2">UPI ID saved successfully! Customers can now pay via UPI.</p>
           )}
         </div>
+
+        {/* Earnings & Settlement Section */}
+        {earnings && (
+          <div className="card-base mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                <Banknote size={20} className="text-green-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Earnings & Settlements</h3>
+                <p className="text-sm text-muted-foreground">Your income breakdown (83% of order value)</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="p-4 bg-green-50 rounded-xl border border-green-200">
+                <p className="text-xs text-green-700 font-medium">Today</p>
+                <p className="text-2xl font-bold text-green-800">₹{earnings.today.earnings.toFixed(0)}</p>
+                <p className="text-xs text-green-600">{earnings.today.orders} orders</p>
+              </div>
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <p className="text-xs text-blue-700 font-medium">This Week</p>
+                <p className="text-2xl font-bold text-blue-800">₹{earnings.week.earnings.toFixed(0)}</p>
+                <p className="text-xs text-blue-600">{earnings.week.orders} orders</p>
+              </div>
+              <div className="p-4 bg-purple-50 rounded-xl border border-purple-200">
+                <p className="text-xs text-purple-700 font-medium">All Time</p>
+                <p className="text-2xl font-bold text-purple-800">₹{earnings.total.earnings.toFixed(0)}</p>
+                <p className="text-xs text-purple-600">{earnings.total.orders} orders</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-4 bg-orange-50 rounded-xl border border-orange-200">
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-orange-800">
+                  Unsettled: ₹{(earnings.total.earnings - earnings.paidSettlement - earnings.pendingSettlement).toFixed(0)}
+                </p>
+                <p className="text-xs text-orange-600">
+                  Pending requests: ₹{earnings.pendingSettlement.toFixed(0)} · Paid: ₹{earnings.paidSettlement.toFixed(0)}
+                </p>
+              </div>
+              <button
+                onClick={handleRequestSettlement}
+                disabled={settlementRequesting || !upiId.trim()}
+                className="btn-primary px-5 py-2 text-sm flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+              >
+                <Banknote size={16} />
+                {settlementRequesting ? "Requesting..." : "Request Settlement"}
+              </button>
+            </div>
+            {settlementMsg && (
+              <p className={`text-sm mt-2 ${settlementMsg.includes("sent") ? "text-green-600" : "text-red-600"}`}>{settlementMsg}</p>
+            )}
+
+            {/* Settlement History */}
+            {settlementHistory.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-sm font-bold mb-2 flex items-center gap-2"><Clock size={14} /> Settlement History</h4>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {settlementHistory.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between p-2 bg-secondary/50 rounded-lg text-sm">
+                      <div>
+                        <span className="font-semibold">₹{s.amount.toFixed(0)}</span>
+                        <span className="text-muted-foreground ml-2">{new Date(s.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                        s.status === "paid" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
+                      }`}>
+                        {s.status === "paid" ? "Paid" : "Pending"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Action buttons row */}
         <div className="flex flex-wrap gap-3 mb-8">

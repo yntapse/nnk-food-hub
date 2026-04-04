@@ -5,8 +5,7 @@ const config: CapacitorConfig = {
   appName: "Niphad Bites",
   webDir: "dist/spa",
   server: {
-    // During development: point to your backend URL so API calls work on device.
-    // Replace with your deployed backend URL for production builds.
+    // For production: set VITE_API_URL in .env to your Netlify URL
     // For local testing on the same WiFi: use your laptop's IP, e.g. http://192.168.1.x:8080
     // url: "http://192.168.1.x:8080",
     androidScheme: "https",

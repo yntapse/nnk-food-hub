@@ -2,11 +2,23 @@
 import { Link } from "react-router-dom";
 import { apiUrl } from "@/lib/api";
 import Header from "@/components/Header";
+import { useAuthStore } from "@/stores/authStore";
 import {
-  Search, Star, MapPin, Clock, Flame, TrendingUp, Leaf,
-  IndianRupee, ChevronLeft, ChevronRight, Zap, Lock,
+  Search, Star, MapPin, Clock, TrendingUp, Leaf,
+  IndianRupee, ChevronLeft, ChevronRight, Zap, Lock, AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+const NIPHAD_BUS_STAND = { latitude: 20.0827, longitude: 74.1097 };
+const MAX_ORDER_DISTANCE_KM = 8;
+
+function toRad(d: number) { return (d * Math.PI) / 180; }
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 interface Hotel {
   id: number;
@@ -203,6 +215,7 @@ function HeroCarousel() {
 }
 
 export default function Index() {
+  const { user } = useAuthStore();
   const [hotels, setHotels] = useState<Hotel[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -210,6 +223,8 @@ export default function Index() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [sortBy, setSortBy] = useState<SortKey>("rating");
   const searchRef = useRef<HTMLInputElement>(null);
+  const [addressDistanceKm, setAddressDistanceKm] = useState<number | null>(null);
+  const [geocodingAddress, setGeocodingAddress] = useState(false);
 
   const categories = ["All", "Fast Food", "Biryani", "Pizza", "Chinese", "South Indian", "Desserts", "Beverages"];
 
@@ -226,6 +241,43 @@ export default function Index() {
       }
     })();
   }, []);
+
+  // Geocode saved delivery address and compute distance from Niphad Bus Stand
+  useEffect(() => {
+    const savedAddress = user?.address || "";
+    if (!savedAddress) { setAddressDistanceKm(null); return; }
+
+    const geocodableText = savedAddress.includes(" | ")
+      ? (savedAddress.split(" | ").pop() ?? savedAddress).trim()
+      : savedAddress.trim();
+    if (!geocodableText) { setAddressDistanceKm(null); return; }
+
+    const controller = new AbortController();
+    setGeocodingAddress(true);
+
+    fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(geocodableText)}`,
+      { signal: controller.signal, headers: { Accept: "application/json" } },
+    )
+      .then((r) => r.json())
+      .then((results: Array<{ lat: string; lon: string }>) => {
+        if (results.length > 0) {
+          const km = haversineKm(
+            NIPHAD_BUS_STAND.latitude, NIPHAD_BUS_STAND.longitude,
+            parseFloat(results[0].lat), parseFloat(results[0].lon),
+          );
+          setAddressDistanceKm(km);
+        } else {
+          setAddressDistanceKm(null);
+        }
+      })
+      .catch((err) => { if (!controller.signal.aborted) console.error("Geocode failed:", err); })
+      .finally(() => { if (!controller.signal.aborted) setGeocodingAddress(false); });
+
+    return () => controller.abort();
+  }, [user?.address]);
+
+  const isOutsideServiceArea = addressDistanceKm !== null && addressDistanceKm > MAX_ORDER_DISTANCE_KM;
 
   const filteredHotels = hotels
     .filter((h) => {
@@ -360,6 +412,21 @@ export default function Index() {
           )}
         </div>
 
+        {/* Out-of-service-area banner */}
+        {user?.address && !geocodingAddress && isOutsideServiceArea && (
+          <div className="mb-5 flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl px-4 py-3.5 text-sm text-red-700">
+            <AlertTriangle size={18} className="shrink-0 mt-0.5 text-red-500" />
+            <div>
+              <p className="font-bold">Delivery not available in your area</p>
+              <p className="text-xs text-red-500 mt-0.5">
+                Your delivery address is <strong>{addressDistanceKm!.toFixed(1)} km</strong> from Niphad Bus Stand.
+                Ordering is only available within {MAX_ORDER_DISTANCE_KM} km.{" "}
+                <Link to="/dashboard" className="underline font-semibold">Change address</Link>
+              </p>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
@@ -371,89 +438,107 @@ export default function Index() {
             animate="show"
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
           >
-            {filteredHotels.map((hotel, idx) => (
-              <motion.div key={hotel.id} variants={cardVariants}>
-                <Link
-                  to={`/restaurant/${hotel.id}`}
-                  className={`group block bg-white rounded-2xl overflow-hidden border shadow-sm transition-all duration-300 ${hotel.isOpen ? "border-gray-100 hover:shadow-xl hover:-translate-y-1" : "border-gray-200 opacity-90"}`}
-                >
-                  {/* Image */}
-                  <div className={`relative h-44 overflow-hidden bg-gray-100 ${hotel.isOpen ? "" : "grayscale"}`}>
-                    <img
-                      src={FOOD_IMAGES[idx % FOOD_IMAGES.length]}
-                      alt={hotel.name}
-                      className={`w-full h-full object-cover transition-transform duration-500 ${hotel.isOpen ? "group-hover:scale-105" : "scale-100"}`}
-                      loading="lazy"
-                    />
-                    {/* Gradient overlay */}
-                    <div className={`absolute inset-0 ${hotel.isOpen ? "bg-gradient-to-t from-black/55 via-black/10 to-transparent" : "bg-gradient-to-t from-black/75 via-black/35 to-black/20"}`} />
+            {filteredHotels.map((hotel, idx) => {
+              const blocked = isOutsideServiceArea || !hotel.isOpen;
+              const wrapperClass = blocked
+                ? `group block bg-white rounded-2xl overflow-hidden border shadow-sm cursor-not-allowed ${!hotel.isOpen ? "border-gray-200 opacity-90" : "border-gray-200"}`
+                : "group block bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1";
 
-                    {/* Bottom-left: Rating */}
-                    <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-gray-800 px-2 py-0.5 rounded-lg text-sm font-bold shadow-sm">
-                      <Star size={12} className="text-yellow-500 fill-yellow-500" />
-                      {hotel.rating.toFixed(1)}
-                    </div>
+              const inner = (
+                  <>
+                    {/* Image */}
+                    <div className={`relative h-44 overflow-hidden bg-gray-100 ${blocked ? "grayscale" : ""}`}>
+                      <img
+                        src={FOOD_IMAGES[idx % FOOD_IMAGES.length]}
+                        alt={hotel.name}
+                        className={`w-full h-full object-cover transition-transform duration-500 ${!blocked ? "group-hover:scale-105" : "scale-100"}`}
+                        loading="lazy"
+                      />
+                      {/* Gradient overlay */}
+                      <div className={`absolute inset-0 ${blocked ? "bg-gradient-to-t from-black/75 via-black/35 to-black/20" : "bg-gradient-to-t from-black/55 via-black/10 to-transparent"}`} />
 
-                    {/* Bottom-right: Status */}
-                    <div className="absolute bottom-3 right-3">
-                      {hotel.isOpen ? (
-                        <span className="bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Open
-                        </span>
-                      ) : (
-                        <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          Closed
-                        </span>
+                      {/* Bottom-left: Rating */}
+                      <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-white/95 backdrop-blur-sm text-gray-800 px-2 py-0.5 rounded-lg text-sm font-bold shadow-sm">
+                        <Star size={12} className="text-yellow-500 fill-yellow-500" />
+                        {hotel.rating.toFixed(1)}
+                      </div>
+
+                      {/* Bottom-right: Status */}
+                      <div className="absolute bottom-3 right-3">
+                        {hotel.isOpen && !isOutsideServiceArea ? (
+                          <span className="bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Open</span>
+                        ) : (
+                          <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">Unavailable</span>
+                        )}
+                      </div>
+
+                      {/* Centre lock overlay */}
+                      {blocked && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-4">
+                          <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-2 border border-white/30">
+                            <Lock size={18} />
+                          </div>
+                          {isOutsideServiceArea && hotel.isOpen ? (
+                            <>
+                              <p className="text-sm font-extrabold">Outside delivery area</p>
+                              <p className="text-[11px] text-white/80">Not delivering to your address</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-extrabold">Restaurant is offline</p>
+                              <p className="text-[11px] text-white/80">Ordering is unavailable right now</p>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
 
-                    {!hotel.isOpen && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-white text-center px-4">
-                        <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center mb-2 border border-white/30">
-                          <Lock size={18} />
-                        </div>
-                        <p className="text-sm font-extrabold">Restaurant is offline</p>
-                        <p className="text-[11px] text-white/80">Ordering is unavailable right now</p>
+                    {/* Info */}
+                    <div className="p-4">
+                      <h3 className={`font-extrabold text-[15px] transition-colors line-clamp-1 mb-1 ${blocked ? "text-gray-500" : "text-gray-900 group-hover:text-primary"}`}>
+                        {hotel.name}
+                      </h3>
+
+                      <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} className="text-gray-400" />
+                          20–30 min
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <IndianRupee size={12} className="text-gray-400" />
+                          200 for two
+                        </span>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Info */}
-                  <div className="p-4">
-                    <h3 className={`font-extrabold text-[15px] transition-colors line-clamp-1 mb-1 ${hotel.isOpen ? "text-gray-900 group-hover:text-primary" : "text-gray-700"}`}>
-                      {hotel.name}
-                    </h3>
+                      <div className="flex items-center justify-between">
+                        <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-600 text-[11px] font-bold px-2.5 py-1 rounded-full border border-orange-100">
+                          {CUISINE_ICONS[hotel.category] || "🍽️"} {hotel.category}
+                        </span>
+                        <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                          <MapPin size={11} />
+                          {hotel.location}
+                        </span>
+                      </div>
 
-                    <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
-                      <span className="flex items-center gap-1">
-                        <Clock size={12} className="text-gray-400" />
-                        20–30 min
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <IndianRupee size={12} className="text-gray-400" />
-                        200 for two
-                      </span>
+                      <div className="mt-3">
+                        <span className={`inline-flex items-center justify-center px-3 py-2 rounded-xl text-xs font-bold transition ${blocked ? "bg-gray-200 text-gray-500" : "bg-primary text-white group-hover:brightness-110"}`}>
+                          {isOutsideServiceArea && hotel.isOpen ? "Not Available in Your Area" : hotel.isOpen ? "View Menu" : "View Menu • Ordering Locked"}
+                        </span>
+                      </div>
                     </div>
+                  </>
+              );
 
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1 bg-orange-50 text-orange-600 text-[11px] font-bold px-2.5 py-1 rounded-full border border-orange-100">
-                        {CUISINE_ICONS[hotel.category] || "🍽️"} {hotel.category}
-                      </span>
-                      <span className="flex items-center gap-1 text-[11px] text-gray-400">
-                        <MapPin size={11} />
-                        {hotel.location}
-                      </span>
-                    </div>
-
-                    <div className="mt-3">
-                      <span className={`inline-flex items-center justify-center px-3 py-2 rounded-xl text-xs font-bold transition ${hotel.isOpen ? "bg-primary text-white group-hover:brightness-110" : "bg-gray-200 text-gray-700"}`}>
-                        {hotel.isOpen ? "View Menu" : "View Menu • Ordering Locked"}
-                      </span>
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
+              return (
+                <motion.div key={hotel.id} variants={cardVariants}>
+                  {blocked ? (
+                    <div className={wrapperClass}>{inner}</div>
+                  ) : (
+                    <Link to={`/restaurant/${hotel.id}`} className={wrapperClass}>{inner}</Link>
+                  )}
+                </motion.div>
+              );
+            })}
           </motion.div>
         ) : (
           <motion.div

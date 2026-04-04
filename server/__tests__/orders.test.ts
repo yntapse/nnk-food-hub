@@ -37,6 +37,8 @@ const makeToken = (id: number, role: string) =>
 
 const USER_TOKEN = makeToken(10, "user");
 const USER_ID = 10;
+const IN_RANGE_COORDS = { userLatitude: 20.085, userLongitude: 74.112 };
+const OUT_OF_RANGE_COORDS = { userLatitude: 20.25, userLongitude: 74.32 };
 
 // Default admin delivery settings
 const DELIVERY_SETTINGS = {
@@ -90,6 +92,7 @@ describe("POST /api/orders", () => {
         deliveryAddress: "123 Main St",
         paymentMethod: "COD",
         customerPhone: "9999999999",
+        ...IN_RANGE_COORDS,
       });
 
     expect(res.status).toBe(201);
@@ -115,6 +118,7 @@ describe("POST /api/orders", () => {
         deliveryAddress: "456 Park Ave",
         paymentMethod: "COD",
         customerPhone: "9999999999",
+        ...IN_RANGE_COORDS,
       });
 
     expect(res.status).toBe(201);
@@ -141,6 +145,7 @@ describe("POST /api/orders", () => {
         deliveryAddress: "789 MG Road",
         paymentMethod: "COD",
         customerPhone: "9999999999",
+        ...IN_RANGE_COORDS,
       });
 
     expect(res.status).toBe(201);
@@ -159,6 +164,7 @@ describe("POST /api/orders", () => {
         deliveryAddress: "Anywhere",
         paymentMethod: "COD",
         customerPhone: "9999999999",
+        ...IN_RANGE_COORDS,
       });
 
     expect(res.status).toBe(400);
@@ -180,15 +186,33 @@ describe("POST /api/orders", () => {
         deliveryAddress: "Anywhere",
         paymentMethod: "COD",
         customerPhone: "9999999999",
+        ...IN_RANGE_COORDS,
       });
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/unavailable/i);
   });
 
+  it("returns 400 when user is outside 8km service radius", async () => {
+    const res = await request(app)
+      .post("/api/orders")
+      .set("Authorization", USER_TOKEN)
+      .send({
+        hotelId: 5,
+        items: [{ menuItemId: 1, quantity: 1, name: "Biryani", price: 150 }],
+        deliveryAddress: "Far Location",
+        paymentMethod: "COD",
+        customerPhone: "9999999999",
+        ...OUT_OF_RANGE_COORDS,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/within 8 km/i);
+  });
+
   it("returns 401 for unauthenticated request", async () => {
     const res = await request(app).post("/api/orders").send({
-      hotelId: 5, items: [], deliveryAddress: "x", paymentMethod: "COD",
+      hotelId: 5, items: [], deliveryAddress: "x", paymentMethod: "COD", ...IN_RANGE_COORDS,
     });
     expect(res.status).toBe(401);
   });
